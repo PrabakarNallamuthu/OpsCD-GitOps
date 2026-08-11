@@ -1,5 +1,5 @@
 import {
-  buildPaginatedResponse,
+  buildPaginationResponse,
   ok,
   err,
   isOk,
@@ -13,16 +13,17 @@ import {
 
 describe('@opsera/shared — module resolution', () => {
   describe('PaginationResponse builder', () => {
-    it('calculates totalPages correctly', () => {
-      const result = buildPaginatedResponse([1, 2, 3], 30, { page: 1, limit: 10 });
-      expect(result.totalPages).toBe(3);
+    it('builds response with nextCursor and hasMore', () => {
+      const result = buildPaginationResponse([1, 2, 3], 'next-token', 30);
+      expect(result.hasMore).toBe(true);
+      expect(result.nextCursor).toBe('next-token');
+      expect(result.items).toHaveLength(3);
       expect(result.total).toBe(30);
-      expect(result.data).toHaveLength(3);
     });
 
-    it('rounds up totalPages on uneven division', () => {
-      const result = buildPaginatedResponse([], 25, { page: 1, limit: 10 });
-      expect(result.totalPages).toBe(3);
+    it('sets hasMore=false when nextCursor is null', () => {
+      const result = buildPaginationResponse([], null);
+      expect(result.hasMore).toBe(false);
     });
   });
 

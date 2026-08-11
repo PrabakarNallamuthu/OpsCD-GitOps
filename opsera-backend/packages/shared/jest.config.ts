@@ -18,10 +18,7 @@ const config: Config = {
   },
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
-    '^@opsera/shared$': '<rootDir>/../shared/src/index.ts',
-    '^@opsera/logging$': '<rootDir>/../logging/src/index.ts',
-    '^@opsera/kafka$': '<rootDir>/../kafka/src/index.ts',
-    '^@opsera/prisma-config$': '<rootDir>/../prisma-config/src/index.ts',
+    '^@opsera/shared$': '<rootDir>/src/index.ts',
   },
 };
 export default config;
