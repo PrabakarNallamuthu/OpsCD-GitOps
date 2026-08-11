@@ -1,0 +1,124 @@
+---
+# WO-030: Kong Gateway JWT Validation and Auth Routing
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: opsera-jwt-validation
+  namespace: opsera-internal
+  labels:
+    app.kubernetes.io/name: kong-jwt-validation
+    app.kubernetes.io/part-of: opsera-platform
+plugin: jwt
+config:
+  key_claim_name: sub
+  claims_to_verify:
+    - exp
+    - nbf
+  cookie_names:
+    - access_token
+  run_on_preflight: false
+  uri_param_names: []
+  # RS256 public key loaded from Auth Service JWKS endpoint via periodic refresh
+  # Kong JWT plugin validates RS256 using consumer credential public_key
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: opsera-rate-limiting
+  namespace: opsera-internal
+plugin: rate-limiting
+config:
+  second: 100
+  minute: 5000
+  hour: 100000
+  policy: redis
+  redis_host: redis-master.opsera-internal.svc.cluster.local
+  redis_port: 6379
+  redis_database: 1
+  fault_tolerant: true
+  hide_client_headers: false
+  limit_by: consumer
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: opsera-correlation-id
+  namespace: opsera-internal
+plugin: correlation-id
+config:
+  header_name: x-correlation-id
+  generator: uuid
+  echo_downstream: true
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: opsera-request-transformer
+  namespace: opsera-internal
+plugin: request-transformer
+config:
+  add:
+    headers:
+      - "x-opsera-internal: true"
+      - "x-forwarded-scheme: https"
+---
+# Auth Service routes (JWT-exempt for login/callback/JWKS)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opsera-auth-routes
+  namespace: opsera-internal
+  annotations:
+    konghq.com/plugins: "opsera-correlation-id,opsera-rate-limiting"
+    konghq.com/strip-path: "false"
+    kubernetes.io/ingress.class: kong
+spec:
+  tls:
+    - hosts:
+        - api.opsera.internal
+      secretName: opsera-tls-cert
+  rules:
+    - host: api.opsera.internal
+      http:
+        paths:
+          - path: /api/v1/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 3000
+---
+# All other API routes (JWT required)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opsera-api-routes
+  namespace: opsera-internal
+  annotations:
+    konghq.com/plugins: "opsera-jwt-validation,opsera-correlation-id,opsera-rate-limiting,opsera-request-transformer"
+    konghq.com/strip-path: "false"
+    kubernetes.io/ingress.class: kong
+spec:
+  tls:
+    - hosts:
+        - api.opsera.internal
+      secretName: opsera-tls-cert
+  rules:
+    - host: api.opsera.internal
+      http:
+        paths:
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: bff-service
+                port:
+                  number: 3000
+          - path: /ws/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: bff-service
+                port:
+                  number: 3001
