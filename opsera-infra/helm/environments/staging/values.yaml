@@ -1,0 +1,102 @@
+global:
+  environment: staging
+  registry: ghcr.io/opsera
+  imageTag: latest
+  logLevel: info
+  domain: staging.opsera.internal
+
+services:
+  release-service:
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    env:
+      LOG_LEVEL: info
+      KAFKA_BROKERS: "opsera-kafka-kafka-bootstrap.opsera-data.svc.cluster.local:9093"
+
+  risk-engine:
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2"
+        memory: "2Gi"
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+  policy-engine:
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+  audit-service:
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+  auth-service:
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+  bff-service:
+    replicaCount: 2
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 5
+    ingress:
+      enabled: true
+      tls:
+        - secretName: bff-tls-staging
+          hosts:
+            - api.staging.opsera.internal
+      hosts:
+        - host: api.staging.opsera.internal
+          paths:
+            - path: /
+              pathType: Prefix
+
+  web-app:
+    replicaCount: 2
+    ingress:
+      enabled: true
+      tls:
+        - secretName: web-tls-staging
+          hosts:
+            - staging.opsera.internal

@@ -1,0 +1,8 @@
+replicaCount: 1
+image:
+  tag: latest
+env:
+  SERVICE_NAME: "auth-service"
+extraEnvFromSecrets:
+  - postgresql-creds-auth
+  - kafka-sasl-auth-service

@@ -1,0 +1,143 @@
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      retention: 15d
+      retentionSize: "40GB"
+      scrapeInterval: "15s"
+      evaluationInterval: "15s"
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "2Gi"
+        limits:
+          cpu: "2"
+          memory: "4Gi"
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: gp3-encrypted
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 50Gi
+      additionalScrapeConfigs:
+        - job_name: kafka-jmx
+          static_configs:
+            - targets:
+              - opsera-kafka-kafka-0.opsera-kafka-kafka-brokers.opsera-data.svc.cluster.local:9404
+              - opsera-kafka-kafka-1.opsera-kafka-kafka-brokers.opsera-data.svc.cluster.local:9404
+              - opsera-kafka-kafka-2.opsera-kafka-kafka-brokers.opsera-data.svc.cluster.local:9404
+        - job_name: postgres-exporter
+          static_configs:
+            - targets:
+              - postgresql-exporter.opsera-data.svc.cluster.local:9187
+        - job_name: redis-exporter
+          static_configs:
+            - targets:
+              - redis-exporter.opsera-data.svc.cluster.local:9121
+
+  alertmanager:
+    alertmanagerSpec:
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+    config:
+      global:
+        resolve_timeout: 5m
+      route:
+        group_by: ["alertname", "service"]
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 4h
+        receiver: slack-dev
+        routes:
+          - match:
+              severity: critical
+            receiver: pagerduty
+          - match:
+              severity: warning
+            receiver: slack-dev
+      receivers:
+        - name: slack-dev
+          slack_configs:
+            - api_url_secret:
+                name: alertmanager-secrets
+                key: slack-webhook-url
+              channel: "#opsera-alerts-dev"
+              send_resolved: true
+        - name: pagerduty
+          pagerduty_configs:
+            - integration_key_secret:
+                name: alertmanager-secrets
+                key: pagerduty-integration-key
+              severity: "{{ .GroupLabels.severity }}"
+
+  grafana:
+    enabled: true
+    adminPassword: "changeme-dev"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+          - name: opsera
+            orgId: 1
+            folder: Opsera
+            type: file
+            disableDeletion: false
+            options:
+              path: /var/lib/grafana/dashboards/opsera
+
+opentelemetry-collector:
+  mode: deployment
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 512
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+    exporters:
+      jaeger:
+        endpoint: jaeger-collector.monitoring.svc.cluster.local:14250
+        tls:
+          insecure: true
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [jaeger]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]
+
+jaeger:
+  provisionDataStore:
+    cassandra: false
+    elasticsearch: false
+  allInOne:
+    enabled: true
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  storage:
+    type: memory
+  query:
+    basePath: /jaeger

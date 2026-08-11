@@ -1,0 +1,8 @@
+replicaCount: 1
+image:
+  tag: latest
+env:
+  SERVICE_NAME: "risk-engine"
+extraEnvFromSecrets:
+  - postgresql-creds-risk
+  - kafka-sasl-risk-engine

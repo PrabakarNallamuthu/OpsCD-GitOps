@@ -1,0 +1,145 @@
+name: opsera-voyage-pipeline
+description: CI/CD pipeline for the Opsera Voyage platform (9 services)
+version: "1.0"
+
+triggers:
+  - type: webhook
+    events:
+      - push
+    branches:
+      - main
+    correlationIdHeader: X-Correlation-ID
+
+  - type: webhook
+    events:
+      - pull_request
+    actions:
+      - opened
+      - synchronize
+      - reopened
+
+metadata:
+  capture:
+    - commitSha: "{{ git.sha }}"
+    - commitAuthor: "{{ git.author }}"
+    - branch: "{{ git.branch }}"
+    - correlationId: "{{ pipeline.correlationId }}"
+    - buildNumber: "{{ pipeline.runNumber }}"
+
+stages:
+  - name: source
+    steps:
+      - name: checkout
+        type: git-checkout
+        config:
+          depth: 1
+          lfs: false
+
+  - name: build
+    parallel: true
+    steps:
+      - name: build:node
+        type: script
+        workingDirectory: opsera-backend
+        script: forge/scripts/build-node.sh
+        env:
+          NODE_ENV: test
+          CI: "true"
+        failFast: true
+
+      - name: build:docker
+        type: script
+        workingDirectory: .
+        script: opsera-infra/forge/scripts/build-docker.sh
+        env:
+          REGISTRY: "{{ env.CONTAINER_REGISTRY }}"
+          IMAGE_TAG: "{{ git.sha }}"
+          SEMVER_TAG: "{{ git.tag | default('dev') }}"
+        failFast: true
+
+    onFailure:
+      - name: notify-failure
+        type: notification
+        config:
+          message: |
+            Pipeline FAILED at build stage
+            Correlation ID: {{ pipeline.correlationId }}
+            Step: {{ failedStep.name }}
+            Error: {{ failedStep.error }}
+            Branch: {{ git.branch }}
+            Commit: {{ git.sha }}
+
+  - name: security-scan
+    dependsOn:
+      - build
+    parallel: true
+    steps:
+      - name: scan:sast
+        type: script
+        script: opsera-infra/forge/scripts/scan-sast.sh
+
+      - name: scan:container
+        type: script
+        script: opsera-infra/forge/scripts/scan-containers.sh
+
+      - name: scan:secrets
+        type: script
+        script: opsera-infra/forge/scripts/scan-secrets.sh
+
+  - name: deploy-dev
+    dependsOn:
+      - security-scan
+    condition: "{{ git.branch == 'main' }}"
+    steps:
+      - name: deploy:dev
+        type: helm-deploy
+        config:
+          environment: dev
+          namespace: opsera-internal
+          valuesFile: opsera-infra/helm/environments/dev/values.yaml
+
+  - name: approval-staging
+    dependsOn:
+      - deploy-dev
+    type: manual-approval
+    config:
+      approvers:
+        - role: release-manager
+      timeout: 24h
+      message: "Approve promotion to staging environment"
+
+  - name: deploy-staging
+    dependsOn:
+      - approval-staging
+    steps:
+      - name: deploy:staging
+        type: helm-deploy
+        config:
+          environment: staging
+          namespace: opsera-internal
+          valuesFile: opsera-infra/helm/environments/staging/values.yaml
+
+  - name: approval-production
+    dependsOn:
+      - deploy-staging
+    type: manual-approval
+    config:
+      approvers:
+        - role: release-manager
+        - role: sre
+      timeout: 8h
+      message: "Approve production deployment — verify staging SLOs before approving"
+
+  - name: deploy-production
+    dependsOn:
+      - approval-production
+    steps:
+      - name: deploy:production
+        type: helm-deploy
+        config:
+          environment: production
+          namespace: opsera-internal
+          valuesFile: opsera-infra/helm/environments/production/values.yaml
+          strategy: rolling-update
+          maxUnavailable: 0
+          maxSurge: 1

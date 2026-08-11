@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-wal-scripts
+  namespace: opsera-data
+  labels:
+    app.kubernetes.io/component: database
+data:
+  wal-archive.sh: |
+    #!/bin/bash
+    # WAL archival to MinIO every 5 minutes
+    set -euo pipefail
+
+    WAL_PATH="$1"
+    WAL_FILE="$2"
+    BUCKET="${MINIO_BUCKET:-opsera-pg-wal}"
+    MINIO_ENDPOINT="${MINIO_ENDPOINT:-http://minio.opsera-data.svc.cluster.local:9000}"
+
+    /usr/local/bin/mc cp "${WAL_PATH}" \
+      "minio/${BUCKET}/$(hostname)/${WAL_FILE}"
+
+    echo "WAL archived: ${WAL_FILE}"
+
+  backup-full.sh: |
+    #!/bin/bash
+    # Daily full backup with PITR support
+    set -euo pipefail
+
+    BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
+    BUCKET="${MINIO_BUCKET:-opsera-pg-backups}"
+    PGPASSWORD="${POSTGRES_PASSWORD}"
+
+    pg_basebackup \
+      -h localhost \
+      -p 5432 \
+      -U postgres \
+      -D /tmp/backup_${BACKUP_DATE} \
+      --wal-method=stream \
+      --checkpoint=fast \
+      --label="opsera_backup_${BACKUP_DATE}" \
+      --gzip
+
+    /usr/local/bin/mc cp --recursive \
+      "/tmp/backup_${BACKUP_DATE}/" \
+      "minio/${BUCKET}/$(hostname)/${BACKUP_DATE}/"
+
+    rm -rf /tmp/backup_${BACKUP_DATE}
+    echo "Full backup completed: ${BACKUP_DATE}"
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgresql-full-backup
+  namespace: opsera-data
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+          containers:
+            - name: backup
+              image: bitnami/postgresql:16
+              command: ["/scripts/backup-full.sh"]
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgresql-credentials
+                      key: postgres-password
+                - name: MINIO_ENDPOINT
+                  value: "http://minio.opsera-data.svc.cluster.local:9000"
+              volumeMounts:
+                - name: wal-archive-script
+                  mountPath: /scripts
+          volumes:
+            - name: wal-archive-script
+              configMap:
+                name: postgresql-wal-scripts
+                defaultMode: 0755

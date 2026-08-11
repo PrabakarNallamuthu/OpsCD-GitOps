@@ -1,0 +1,5 @@
+apiVersion: v2
+name: base-nestjs
+description: Library chart providing base NestJS microservice template for Opsera
+type: library
+version: 1.0.0

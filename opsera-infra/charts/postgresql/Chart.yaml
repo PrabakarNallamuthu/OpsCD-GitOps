@@ -1,0 +1,13 @@
+apiVersion: v2
+name: opsera-postgresql
+description: PostgreSQL 16 with PgBouncer, WAL archiving, and Vault dynamic credentials for Opsera
+type: application
+version: 1.0.0
+appVersion: "16.3"
+dependencies:
+  - name: postgresql
+    version: "15.5.27"
+    repository: "https://charts.bitnami.com/bitnami"
+  - name: pgbouncer
+    version: "0.3.0"
+    repository: "https://groundhog2k.github.io/helm-charts/"

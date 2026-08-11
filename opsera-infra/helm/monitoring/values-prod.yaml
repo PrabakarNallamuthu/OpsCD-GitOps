@@ -1,0 +1,108 @@
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      retention: 90d
+      retentionSize: "200GB"
+      scrapeInterval: "15s"
+      evaluationInterval: "15s"
+      replicas: 2
+      resources:
+        requests:
+          cpu: "2"
+          memory: "8Gi"
+        limits:
+          cpu: "4"
+          memory: "16Gi"
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: gp3-encrypted
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 500Gi
+
+  alertmanager:
+    alertmanagerSpec:
+      replicas: 2
+    config:
+      global:
+        resolve_timeout: 5m
+      route:
+        group_by: ["alertname", "service", "severity"]
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 1h
+        receiver: pagerduty-critical
+        routes:
+          - match:
+              severity: critical
+            receiver: pagerduty-critical
+          - match:
+              severity: warning
+            receiver: slack-prod
+      receivers:
+        - name: pagerduty-critical
+          pagerduty_configs:
+            - integration_key_secret:
+                name: alertmanager-secrets
+                key: pagerduty-integration-key
+        - name: slack-prod
+          slack_configs:
+            - api_url_secret:
+                name: alertmanager-secrets
+                key: slack-webhook-url
+              channel: "#opsera-alerts-prod"
+
+opentelemetry-collector:
+  mode: daemonset
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+      tail_sampling:
+        decision_wait: 10s
+        num_traces: 100
+        expected_new_traces_per_sec: 100
+        policies:
+          - name: errors-policy
+            type: status_code
+            status_code: {status_codes: [ERROR]}
+          - name: slow-traces
+            type: latency
+            latency: {threshold_ms: 500}
+          - name: probabilistic-policy
+            type: probabilistic
+            probabilistic: {sampling_percentage: 10}
+    exporters:
+      otlp/jaeger:
+        endpoint: jaeger-collector.monitoring.svc.cluster.local:4317
+
+jaeger:
+  provisionDataStore:
+    elasticsearch: true
+  storage:
+    type: elasticsearch
+    elasticsearch:
+      host: elasticsearch-master.opsera-data.svc.cluster.local
+      port: 9200
+  collector:
+    replicaCount: 3
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+  query:
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"

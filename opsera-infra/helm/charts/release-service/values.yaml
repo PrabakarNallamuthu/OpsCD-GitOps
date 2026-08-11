@@ -1,0 +1,8 @@
+replicaCount: 1
+image:
+  tag: latest
+env:
+  SERVICE_NAME: "release-service"
+extraEnvFromSecrets:
+  - postgresql-creds-release
+  - kafka-sasl-release-service

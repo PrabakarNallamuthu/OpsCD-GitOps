@@ -1,0 +1,6 @@
+apiVersion: v2
+name: opsera-kafka
+description: Apache Kafka 3.7 via Strimzi with TLS, SASL, and domain topics for Opsera
+type: application
+version: 1.0.0
+appVersion: "3.7.0"

@@ -1,0 +1,8 @@
+replicaCount: 1
+image:
+  tag: latest
+env:
+  SERVICE_NAME: "verification-service"
+extraEnvFromSecrets:
+  - postgresql-creds-verification
+  - kafka-sasl-verification-service

@@ -1,0 +1,8 @@
+replicaCount: 1
+image:
+  tag: latest
+env:
+  SERVICE_NAME: "policy-engine"
+extraEnvFromSecrets:
+  - postgresql-creds-policy
+  - kafka-sasl-policy-engine

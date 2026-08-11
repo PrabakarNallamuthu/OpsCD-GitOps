@@ -1,0 +1,26 @@
+{{- $services := list "release-service" "risk-engine" "policy-engine" "audit-service" "verification-service" "analytics-service" "auth-service" "bff-service" -}}
+{{- range $services }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ . }}
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: {{ . }}
+    prometheus: kube-prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - opsera-internal
+      - opsera-public
+      - opsera-dmz
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ . }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+{{- end }}

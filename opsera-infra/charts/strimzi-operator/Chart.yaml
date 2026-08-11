@@ -1,0 +1,10 @@
+apiVersion: v2
+name: opsera-strimzi-operator
+description: Strimzi Kafka Operator for Opsera platform
+type: application
+version: 1.0.0
+appVersion: "0.41.0"
+dependencies:
+  - name: strimzi-kafka-operator
+    version: "0.41.0"
+    repository: "https://strimzi.io/charts/"

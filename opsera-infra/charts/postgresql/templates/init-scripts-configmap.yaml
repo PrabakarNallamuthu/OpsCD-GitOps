@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-init-scripts
+  namespace: opsera-data
+  labels:
+    app.kubernetes.io/component: database
+data:
+  00-extensions.sql: |
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
+    CREATE EXTENSION IF NOT EXISTS "pg_partman";
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+  01-schemas.sql: |
+    -- Per-service schema isolation
+    CREATE SCHEMA IF NOT EXISTS release;
+    CREATE SCHEMA IF NOT EXISTS risk;
+    CREATE SCHEMA IF NOT EXISTS policy;
+    CREATE SCHEMA IF NOT EXISTS audit;
+    CREATE SCHEMA IF NOT EXISTS verification;
+    CREATE SCHEMA IF NOT EXISTS analytics;
+    CREATE SCHEMA IF NOT EXISTS auth;
+
+  02-roles.sql: |
+    -- Service-isolated roles with least-privilege grants
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'svc_release') THEN
+        CREATE ROLE svc_release WITH LOGIN NOINHERIT CONNECTION LIMIT 50;
+      END IF;
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'svc_risk') THEN
+        CREATE ROLE svc_risk WITH LOGIN NOINHERIT CONNECTION LIMIT 30;
+      END IF;
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'svc_policy') THEN
+        CREATE ROLE svc_policy WITH LOGIN NOINHERIT CONNECTION LIMIT 20;
+      END IF;
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'svc_audit') THEN
+        CREATE ROLE svc_audit WITH LOGIN NOINHERIT CONNECTION LIMIT 30;
+      END IF;
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'svc_verification') THEN
+        CREATE ROLE svc_verification WITH LOGIN NOINHERIT CONNECTION LIMIT 20;
+      END IF;
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'svc_analytics') THEN
+        CREATE ROLE svc_analytics WITH LOGIN NOINHERIT CONNECTION LIMIT 20;
+      END IF;
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'svc_auth') THEN
+        CREATE ROLE svc_auth WITH LOGIN NOINHERIT CONNECTION LIMIT 30;
+      END IF;
+    END $$;
+
+    -- Schema ownership
+    ALTER SCHEMA release OWNER TO svc_release;
+    ALTER SCHEMA risk OWNER TO svc_risk;
+    ALTER SCHEMA policy OWNER TO svc_policy;
+    ALTER SCHEMA audit OWNER TO svc_audit;
+    ALTER SCHEMA verification OWNER TO svc_verification;
+    ALTER SCHEMA analytics OWNER TO svc_analytics;
+    ALTER SCHEMA auth OWNER TO svc_auth;
+
+    -- Cross-service read grants (analytics reads from all)
+    GRANT USAGE ON SCHEMA release TO svc_analytics;
+    GRANT USAGE ON SCHEMA risk TO svc_analytics;
+    GRANT USAGE ON SCHEMA audit TO svc_analytics;
+    GRANT USAGE ON SCHEMA verification TO svc_analytics;
+
+  03-audit-partitioning.sql: |
+    -- Audit records table with monthly partitioning via pg_partman
+    CREATE TABLE IF NOT EXISTS audit.records (
+      id            UUID DEFAULT uuid_generate_v4(),
+      event_type    TEXT NOT NULL,
+      actor_id      UUID NOT NULL,
+      resource_type TEXT NOT NULL,
+      resource_id   UUID NOT NULL,
+      payload       JSONB NOT NULL,
+      hash          TEXT NOT NULL,
+      correlation_id TEXT NOT NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (id, created_at)
+    ) PARTITION BY RANGE (created_at);
+
+    -- Row-Level Security for audit immutability
+    ALTER TABLE audit.records ENABLE ROW LEVEL SECURITY;
+
+    -- No UPDATE or DELETE allowed on audit records
+    CREATE POLICY audit_insert_only ON audit.records
+      FOR INSERT WITH CHECK (true);
+    CREATE POLICY audit_select_only ON audit.records
+      FOR SELECT USING (true);
+    REVOKE UPDATE, DELETE ON audit.records FROM svc_audit;
+
+    -- pg_partman: create monthly partitions automatically
+    SELECT partman.create_parent(
+      p_parent_table => 'audit.records',
+      p_control => 'created_at',
+      p_interval => 'monthly',
+      p_start_partition => date_trunc('month', NOW())::text
+    );
+
+    UPDATE partman.part_config
+    SET retention = '12 months',
+        retention_keep_table = false,
+        infinite_time_partitions = true
+    WHERE parent_table = 'audit.records';

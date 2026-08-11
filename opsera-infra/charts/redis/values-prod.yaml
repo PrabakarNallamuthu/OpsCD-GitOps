@@ -1,0 +1,52 @@
+redis:
+  architecture: replication
+  auth:
+    enabled: true
+    existingSecret: redis-credentials
+    existingSecretPasswordKey: redis-password
+  sentinel:
+    enabled: true
+    masterSet: mymaster
+    downAfterMilliseconds: 5000
+    failoverTimeout: 30000
+    parallelSyncs: 1
+    quorum: 2
+  tls:
+    enabled: true
+    existingSecret: redis-tls
+    certFilename: tls.crt
+    certKeyFilename: tls.key
+    certCAFilename: ca.crt
+  replica:
+    replicaCount: 3
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+      limits:
+        cpu: "2"
+        memory: "8Gi"
+    persistence:
+      enabled: true
+      size: 100Gi
+      storageClass: "gp3-encrypted"
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: redis
+            topologyKey: topology.kubernetes.io/zone
+  commonConfiguration: |
+    appendonly yes
+    appendfsync everysec
+    maxmemory 6gb
+    maxmemory-policy noeviction
+    save 3600 1
+    loglevel notice
+    tls-replication yes
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring

@@ -1,0 +1,73 @@
+postgresql:
+  auth:
+    existingSecret: "postgresql-credentials"
+    secretKeys:
+      adminPasswordKey: "postgres-password"
+      replicationPasswordKey: "replication-password"
+  primary:
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: "gp3-encrypted"
+    initdb:
+      scriptsConfigMap: postgresql-init-scripts
+    configuration: |
+      synchronous_commit = on
+      archive_mode = on
+      archive_command = '/scripts/wal-archive.sh %p %f'
+      max_connections = 200
+      shared_preload_libraries = 'pg_stat_statements,pg_partman_bgw'
+      pg_partman_bgw.interval = 3600
+      ssl = on
+      ssl_cert_file = '/tls/tls.crt'
+      ssl_key_file = '/tls/tls.key'
+      log_connections = on
+      log_disconnections = on
+      log_min_duration_statement = 1000
+    extraVolumeMounts:
+      - name: tls-certs
+        mountPath: /tls
+        readOnly: true
+      - name: wal-archive-script
+        mountPath: /scripts
+    extraVolumes:
+      - name: tls-certs
+        secret:
+          secretName: postgresql-tls
+      - name: wal-archive-script
+        configMap:
+          name: postgresql-wal-scripts
+          defaultMode: 0755
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+      labels:
+        app.kubernetes.io/component: database
+
+pgbouncer:
+  enabled: true
+  config:
+    databases:
+      opsera_release: host=opsera-postgresql port=5432 dbname=opsera_release
+      opsera_risk: host=opsera-postgresql port=5432 dbname=opsera_risk
+      opsera_policy: host=opsera-postgresql port=5432 dbname=opsera_policy
+      opsera_audit: host=opsera-postgresql port=5432 dbname=opsera_audit
+      opsera_verification: host=opsera-postgresql port=5432 dbname=opsera_verification
+      opsera_analytics: host=opsera-postgresql port=5432 dbname=opsera_analytics
+      opsera_auth: host=opsera-postgresql port=5432 dbname=opsera_auth
+    pgbouncer:
+      pool_mode: transaction
+      max_client_conn: 400
+      default_pool_size: 25
+      min_pool_size: 5
+      reserve_pool_size: 10
+      server_tls_sslmode: require

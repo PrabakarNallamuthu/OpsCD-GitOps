@@ -1,0 +1,123 @@
+---
+# Release domain topics
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: releases-created
+  namespace: opsera-data
+  labels:
+    strimzi.io/cluster: opsera-kafka
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    retention.ms: 604800000   # 7 days
+    min.insync.replicas: "2"
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: releases-analysis-requested
+  namespace: opsera-data
+  labels:
+    strimzi.io/cluster: opsera-kafka
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    retention.ms: 604800000
+    min.insync.replicas: "2"
+---
+# Risk domain topics
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: risk-analysis-completed
+  namespace: opsera-data
+  labels:
+    strimzi.io/cluster: opsera-kafka
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    retention.ms: 604800000
+    min.insync.replicas: "2"
+---
+# Policy domain topics
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: policy-evaluated
+  namespace: opsera-data
+  labels:
+    strimzi.io/cluster: opsera-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    retention.ms: 604800000
+    min.insync.replicas: "2"
+---
+# Verification domain topics
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: verification-verdict
+  namespace: opsera-data
+  labels:
+    strimzi.io/cluster: opsera-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    retention.ms: 604800000
+    min.insync.replicas: "2"
+---
+# Analytics domain topics
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: analytics-computed
+  namespace: opsera-data
+  labels:
+    strimzi.io/cluster: opsera-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    retention.ms: 604800000
+    min.insync.replicas: "2"
+---
+# Audit events (higher durability - 365 day retention)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audit-events
+  namespace: opsera-data
+  labels:
+    strimzi.io/cluster: opsera-kafka
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    retention.ms: 31536000000   # 365 days
+    min.insync.replicas: "2"
+    message.timestamp.type: LogAppendTime
+---
+# Dead letter queues
+{{- range list "releases-created" "releases-analysis-requested" "risk-analysis-completed" "audit-events" "policy-evaluated" "verification-verdict" }}
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: {{ . }}.dlq
+  namespace: opsera-data
+  labels:
+    strimzi.io/cluster: opsera-kafka
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    retention.ms: 2592000000   # 30 days for DLQ investigation
+    min.insync.replicas: "2"
+---
+{{- end }}

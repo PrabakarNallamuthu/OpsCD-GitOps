@@ -1,0 +1,8 @@
+replicaCount: 1
+image:
+  tag: latest
+env:
+  SERVICE_NAME: "bff-service"
+extraEnvFromSecrets:
+  - postgresql-creds-bff
+  - kafka-sasl-bff-service

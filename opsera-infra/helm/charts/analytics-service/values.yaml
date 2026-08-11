@@ -1,0 +1,8 @@
+replicaCount: 1
+image:
+  tag: latest
+env:
+  SERVICE_NAME: "analytics-service"
+extraEnvFromSecrets:
+  - postgresql-creds-analytics
+  - kafka-sasl-analytics-service

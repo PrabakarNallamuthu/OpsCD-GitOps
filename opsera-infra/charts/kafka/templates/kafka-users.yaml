@@ -1,0 +1,57 @@
+---
+{{- range list "release-service" "risk-engine" "policy-engine" "audit-service" "verification-service" "analytics-service" "auth-service" "bff-service" }}
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: {{ . }}
+  namespace: opsera-data
+  labels:
+    strimzi.io/cluster: opsera-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: group
+          name: "{{ . }}-group"
+        operation: Read
+      - resource:
+          type: topic
+          name: "*"
+          patternType: literal
+        operation: Describe
+---
+{{- end }}
+
+# release-service: produce to releases.*, consume from policy-evaluated
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: release-service-acls
+  namespace: opsera-data
+  labels:
+    strimzi.io/cluster: opsera-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: releases-created
+        operation: Write
+      - resource:
+          type: topic
+          name: releases-analysis-requested
+        operation: Write
+      - resource:
+          type: topic
+          name: policy-evaluated
+        operation: Read
+      - resource:
+          type: group
+          name: release-service-group
+        operation: Read

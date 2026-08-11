@@ -1,0 +1,10 @@
+apiVersion: v2
+name: audit-service
+description: Helm chart for Opsera audit-service
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+dependencies:
+  - name: base-nestjs
+    version: "1.0.0"
+    repository: "file://../base-nestjs"

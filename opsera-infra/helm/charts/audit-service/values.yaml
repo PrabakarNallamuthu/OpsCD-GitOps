@@ -1,0 +1,8 @@
+replicaCount: 1
+image:
+  tag: latest
+env:
+  SERVICE_NAME: "audit-service"
+extraEnvFromSecrets:
+  - postgresql-creds-audit
+  - kafka-sasl-audit-service
