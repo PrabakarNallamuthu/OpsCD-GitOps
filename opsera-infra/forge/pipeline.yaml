@@ -1,145 +1,192 @@
-name: opsera-voyage-pipeline
-description: CI/CD pipeline for the Opsera Voyage platform (9 services)
-version: "1.0"
+# Opsera Forge Pipeline — Full multi-stage CI/CD with security scanning and Cosign signing
+# Implements: WO-011 (foundation), WO-012 (security scanning), WO-015 (Cosign)
+
+name: opsera-voyage
+version: "2.0"
 
 triggers:
   - type: webhook
-    events:
-      - push
-    branches:
-      - main
-    correlationIdHeader: X-Correlation-ID
+    events: [push, pull_request]
+    branches: [main, release/*, hotfix/*]
 
-  - type: webhook
-    events:
-      - pull_request
-    actions:
-      - opened
-      - synchronize
-      - reopened
-
-metadata:
-  capture:
-    - commitSha: "{{ git.sha }}"
-    - commitAuthor: "{{ git.author }}"
-    - branch: "{{ git.branch }}"
-    - correlationId: "{{ pipeline.correlationId }}"
-    - buildNumber: "{{ pipeline.runNumber }}"
+variables:
+  GIT_SHA: "{{ git.sha }}"
+  GIT_BRANCH: "{{ git.branch }}"
+  SEMANTIC_VERSION: "{{ version.semver }}"
+  PIPELINE_CORRELATION_ID: "{{ pipeline.id }}"
+  REGISTRY_URL: "{{ env.REGISTRY_URL }}"
 
 stages:
-  - name: source
-    steps:
-      - name: checkout
-        type: git-checkout
-        config:
-          depth: 1
-          lfs: false
-
-  - name: build
+  # ── Stage 1: Parallel Build ──────────────────────────────────────────────────
+  - name: Build
     parallel: true
     steps:
-      - name: build:node
-        type: script
-        workingDirectory: opsera-backend
-        script: forge/scripts/build-node.sh
-        env:
+      - id: build:node
+        name: Build TypeScript & Run Tests
+        script: opsera-infra/forge/scripts/build-node.sh
+        environment:
           NODE_ENV: test
-          CI: "true"
-        failFast: true
+        artifacts:
+          - path: opsera-backend/coverage/**
+            retention: 30d
 
-      - name: build:docker
-        type: script
-        workingDirectory: .
+      - id: build:docker
+        name: Build Container Images
         script: opsera-infra/forge/scripts/build-docker.sh
-        env:
-          REGISTRY: "{{ env.CONTAINER_REGISTRY }}"
-          IMAGE_TAG: "{{ git.sha }}"
-          SEMVER_TAG: "{{ git.tag | default('dev') }}"
-        failFast: true
+        environment:
+          REGISTRY_URL: "{{ env.REGISTRY_URL }}"
+          GIT_SHA: "{{ git.sha }}"
+          SEMANTIC_VERSION: "{{ version.semver }}"
+        artifacts:
+          - path: /tmp/image-digests.json
+            retention: 90d
 
-    onFailure:
-      - name: notify-failure
-        type: notification
-        config:
+  # ── Stage 2: Parallel Security Scanning ─────────────────────────────────────
+  - name: SecurityScan
+    depends_on: [Build]
+    parallel: true
+    steps:
+      - id: scan:gitleaks
+        name: Secret Detection (Gitleaks)
+        image: zricethezav/gitleaks:v8.18.0
+        script: |
+          gitleaks detect \
+            --source /workspace \
+            --config /workspace/opsera-infra/forge/config/.gitleaks.toml \
+            --report-format json \
+            --report-path /scan-results/gitleaks-results.json \
+            --no-git
+        artifacts:
+          - path: /scan-results/gitleaks-results.json
+            retention: 2555d  # 7 years compliance retention
+
+      - id: scan:grype
+        name: Container Image CVE Scan (Grype)
+        image: anchore/grype:latest
+        script: |
+          SERVICES=("release-service" "risk-engine" "policy-engine" "audit-service"
+                    "verification-service" "analytics-service" "auth-service" "bff-service")
+          for SVC in "${SERVICES[@]}"; do
+            grype "${REGISTRY_URL}/opsera/${SVC}:${GIT_SHA}" \
+              --output sarif \
+              --file "/scan-results/grype-${SVC}.sarif" \
+              --fail-on critical
+          done
+        artifacts:
+          - path: /scan-results/grype-*.sarif
+            retention: 2555d
+
+      - id: scan:sonarqube
+        name: Static Analysis (SonarQube)
+        image: sonarsource/sonar-scanner-cli:latest
+        environment:
+          SONAR_TOKEN: "{{ vault.secret.sonarqube.token }}"
+          SONAR_HOST_URL: "{{ env.SONAR_HOST_URL }}"
+        script: |
+          sonar-scanner \
+            -Dsonar.projectKey=opsera-voyage \
+            -Dsonar.sources=opsera-backend/packages,opsera-frontend/src \
+            -Dsonar.qualitygate.wait=true
+        artifacts:
+          - path: .scannerwork/
+            retention: 2555d
+
+      - id: scan:snyk
+        name: Dependency Vulnerability Scan (Snyk)
+        image: snyk/snyk:node
+        environment:
+          SNYK_TOKEN: "{{ vault.secret.snyk.token }}"
+        script: |
+          snyk test \
+            --all-projects \
+            --severity-threshold=high \
+            --json-file-output=/scan-results/snyk-results.json
+        artifacts:
+          - path: /scan-results/snyk-results.json
+            retention: 2555d
+
+    on_failure:
+      notify:
+        - type: slack
+          channel: "#security-alerts"
           message: |
-            Pipeline FAILED at build stage
-            Correlation ID: {{ pipeline.correlationId }}
-            Step: {{ failedStep.name }}
-            Error: {{ failedStep.error }}
-            Branch: {{ git.branch }}
+            🚨 *Security scan FAILED* for {{ git.branch }} ({{ pipeline.id }})
+            Scanner: {{ failed_step.id }}
             Commit: {{ git.sha }}
 
-  - name: security-scan
-    dependsOn:
-      - build
-    parallel: true
+  # ── Stage 3: Push to Registry + Sign ────────────────────────────────────────
+  - name: Push
+    depends_on: [SecurityScan]
+    condition: "{{ git.branch == 'main' || git.branch matches /^release\\// }}"
     steps:
-      - name: scan:sast
-        type: script
-        script: opsera-infra/forge/scripts/scan-sast.sh
+      - id: push:registry
+        name: Push Images to Registry
+        script: |
+          SERVICES=("release-service" "risk-engine" "policy-engine" "audit-service"
+                    "verification-service" "analytics-service" "auth-service" "bff-service" "frontend")
+          for SVC in "${SERVICES[@]}"; do
+            docker push "${REGISTRY_URL}/opsera/${SVC}:${GIT_SHA}"
+            docker push "${REGISTRY_URL}/opsera/${SVC}:${SEMANTIC_VERSION}"
+          done
 
-      - name: scan:container
-        type: script
-        script: opsera-infra/forge/scripts/scan-containers.sh
+      - id: push:sign
+        name: Cosign Image Signing
+        depends_on: [push:registry]
+        environment:
+          VAULT_ADDR: "{{ env.VAULT_ADDR }}"
+          VAULT_TOKEN: "{{ vault.token }}"
+        script: opsera-infra/forge/scripts/cosign-sign.sh
 
-      - name: scan:secrets
-        type: script
-        script: opsera-infra/forge/scripts/scan-secrets.sh
-
-  - name: deploy-dev
-    dependsOn:
-      - security-scan
-    condition: "{{ git.branch == 'main' }}"
+  # ── Stage 4: Deploy to Dev ───────────────────────────────────────────────────
+  - name: DeployDev
+    depends_on: [Push]
     steps:
-      - name: deploy:dev
-        type: helm-deploy
-        config:
-          environment: dev
-          namespace: opsera-internal
-          valuesFile: opsera-infra/helm/environments/dev/values.yaml
+      - id: deploy:dev
+        name: Helm Deploy to Dev Cluster
+        environment:
+          KUBECONFIG: "{{ vault.secret.kubeconfig.dev }}"
+        script: |
+          helm upgrade --install opsera-voyage opsera-infra/helm/charts/release-service \
+            --namespace opsera-internal \
+            --values opsera-infra/helm/environments/dev/values.yaml \
+            --set global.image.tag="${GIT_SHA}" \
+            --wait --timeout 5m
 
-  - name: approval-staging
-    dependsOn:
-      - deploy-dev
-    type: manual-approval
-    config:
-      approvers:
-        - role: release-manager
-      timeout: 24h
-      message: "Approve promotion to staging environment"
-
-  - name: deploy-staging
-    dependsOn:
-      - approval-staging
+  # ── Stage 5: Staging Approval + Deploy ──────────────────────────────────────
+  - name: DeployStaging
+    depends_on: [DeployDev]
+    approval:
+      required: true
+      approvers: [release-managers]
+      timeout: 2h
     steps:
-      - name: deploy:staging
-        type: helm-deploy
-        config:
-          environment: staging
-          namespace: opsera-internal
-          valuesFile: opsera-infra/helm/environments/staging/values.yaml
+      - id: deploy:staging
+        name: Helm Deploy to Staging
+        environment:
+          KUBECONFIG: "{{ vault.secret.kubeconfig.staging }}"
+        script: |
+          helm upgrade --install opsera-voyage opsera-infra/helm/charts/release-service \
+            --namespace opsera-internal \
+            --values opsera-infra/helm/environments/staging/values.yaml \
+            --set global.image.tag="${GIT_SHA}" \
+            --wait --timeout 10m
 
-  - name: approval-production
-    dependsOn:
-      - deploy-staging
-    type: manual-approval
-    config:
-      approvers:
-        - role: release-manager
-        - role: sre
-      timeout: 8h
-      message: "Approve production deployment — verify staging SLOs before approving"
-
-  - name: deploy-production
-    dependsOn:
-      - approval-production
+  # ── Stage 6: Production Approval + Deploy ───────────────────────────────────
+  - name: DeployProduction
+    depends_on: [DeployStaging]
+    approval:
+      required: true
+      approvers: [release-managers, sre-leads]
+      min_approvals: 2
+      timeout: 4h
     steps:
-      - name: deploy:production
-        type: helm-deploy
-        config:
-          environment: production
-          namespace: opsera-internal
-          valuesFile: opsera-infra/helm/environments/production/values.yaml
-          strategy: rolling-update
-          maxUnavailable: 0
-          maxSurge: 1
+      - id: deploy:production
+        name: Helm Deploy to Production
+        environment:
+          KUBECONFIG: "{{ vault.secret.kubeconfig.production }}"
+        script: |
+          helm upgrade --install opsera-voyage opsera-infra/helm/charts/release-service \
+            --namespace opsera-internal \
+            --values opsera-infra/helm/environments/production/values.yaml \
+            --set global.image.tag="${GIT_SHA}" \
+            --wait --timeout 15m

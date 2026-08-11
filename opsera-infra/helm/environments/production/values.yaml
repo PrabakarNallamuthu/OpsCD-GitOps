@@ -1,161 +1,58 @@
+# Production environment Helm overlay
+# All 8 services run 3 replicas with HPA (max 10) and PDB (minAvailable 2)
+
 global:
-  environment: production
-  registry: ghcr.io/opsera
-  imageTag: latest
-  logLevel: warn
-  domain: opsera.io
+  env: production
+  image:
+    tag: "" # Set by CI pipeline (git SHA)
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
 
-services:
-  release-service:
-    replicaCount: 3
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
-      limits:
-        cpu: "2"
-        memory: "2Gi"
-    autoscaling:
-      enabled: true
-      minReplicas: 3
-      maxReplicas: 15
-      targetCPUUtilizationPercentage: 70
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 2
-    env:
-      LOG_LEVEL: warn
-      KAFKA_BROKERS: "opsera-kafka-kafka-bootstrap.opsera-data.svc.cluster.local:9093"
+hpa:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
 
-  risk-engine:
-    replicaCount: 3
-    resources:
-      requests:
-        cpu: "1"
-        memory: "2Gi"
-      limits:
-        cpu: "4"
-        memory: "8Gi"
-    autoscaling:
-      enabled: true
-      minReplicas: 3
-      maxReplicas: 20
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 2
+pdb:
+  enabled: true
+  minAvailable: 2
 
-  policy-engine:
-    replicaCount: 3
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
-      limits:
-        cpu: "2"
-        memory: "2Gi"
-    autoscaling:
-      enabled: true
-      minReplicas: 3
-      maxReplicas: 10
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 2
+# Graceful shutdown — 30s allows Kafka offset commits + connection drain
+terminationGracePeriodSeconds: 30
 
-  audit-service:
-    replicaCount: 3
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
-      limits:
-        cpu: "2"
-        memory: "4Gi"
-    autoscaling:
-      enabled: true
-      minReplicas: 3
-      maxReplicas: 10
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 2
+# Tuned probe configuration for production
+startupProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  periodSeconds: 5
+  failureThreshold: 30
 
-  verification-service:
-    replicaCount: 3
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
-      limits:
-        cpu: "2"
-        memory: "2Gi"
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 2
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  periodSeconds: 10
+  failureThreshold: 3
+  initialDelaySeconds: 15
 
-  analytics-service:
-    replicaCount: 3
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "2Gi"
-      limits:
-        cpu: "4"
-        memory: "8Gi"
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 2
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 3000
+  periodSeconds: 30
+  failureThreshold: 2
+  initialDelaySeconds: 10
 
-  auth-service:
-    replicaCount: 3
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
-      limits:
-        cpu: "2"
-        memory: "2Gi"
-    autoscaling:
-      enabled: true
-      minReplicas: 3
-      maxReplicas: 15
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 2
-    env:
-      LOG_LEVEL: warn
-      JWT_ACCESS_TTL: "900"
-      JWT_REFRESH_TTL: "604800"
-
-  bff-service:
-    replicaCount: 3
-    autoscaling:
-      enabled: true
-      minReplicas: 3
-      maxReplicas: 30
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 2
-    ingress:
-      enabled: true
-      annotations:
-        konghq.com/https-redirect-status-code: "308"
-      tls:
-        - secretName: bff-tls-prod
-          hosts:
-            - api.opsera.io
-      hosts:
-        - host: api.opsera.io
-          paths:
-            - path: /
-              pathType: Prefix
-
-  web-app:
-    replicaCount: 3
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 2
-    ingress:
-      enabled: true
-      tls:
-        - secretName: web-tls-prod
-          hosts:
-            - app.opsera.io
+lifecycle:
+  preStop:
+    exec:
+      command: ["/bin/sh", "-c", "sleep 5"]

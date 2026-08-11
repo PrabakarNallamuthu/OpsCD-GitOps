@@ -1,0 +1,56 @@
+{{- if .Values.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "base-nestjs.fullname" . }}
+  labels:
+    {{- include "base-nestjs.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "base-nestjs.fullname" . }}
+  minReplicas: {{ .Values.hpa.minReplicas }}
+  maxReplicas: {{ .Values.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.hpa.targetCPUUtilizationPercentage | default 70 }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.hpa.targetMemoryUtilizationPercentage | default 80 }}
+  {{- if .Values.hpa.customMetrics }}
+  {{- range .Values.hpa.customMetrics }}
+    - type: Object
+      object:
+        metric:
+          name: {{ .name }}
+        describedObject:
+          apiVersion: apps/v1
+          kind: Deployment
+          name: {{ include "base-nestjs.fullname" $ }}
+        target:
+          type: AverageValue
+          averageValue: {{ .targetAverageValue }}
+  {{- end }}
+  {{- end }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+{{- end }}

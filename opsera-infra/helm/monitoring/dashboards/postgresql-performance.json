@@ -1,0 +1,50 @@
+{
+  "title": "Opsera PostgreSQL Performance",
+  "uid": "opsera-postgresql-perf",
+  "tags": ["opsera", "postgresql", "database"],
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Active Connections vs Max",
+      "type": "gauge",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 6 },
+      "targets": [{
+        "expr": "pg_stat_database_numbackends / pg_settings_max_connections * 100",
+        "legendFormat": "Connection utilization %"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Transaction Rate (TPS)",
+      "type": "timeseries",
+      "gridPos": { "x": 6, "y": 0, "w": 18, "h": 6 },
+      "targets": [{
+        "expr": "sum(rate(pg_stat_database_xact_commit[5m])) + sum(rate(pg_stat_database_xact_rollback[5m]))",
+        "legendFormat": "TPS"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "Query Duration Histogram",
+      "type": "heatmap",
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 10 },
+      "targets": [{
+        "expr": "rate(pg_stat_statements_seconds_sum[5m]) / rate(pg_stat_statements_seconds_count[5m])",
+        "legendFormat": "Average query duration"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "Tuple Operations",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "targets": [
+        { "expr": "sum(rate(pg_stat_database_tup_fetched[5m]))", "legendFormat": "Fetched" },
+        { "expr": "sum(rate(pg_stat_database_tup_inserted[5m]))", "legendFormat": "Inserted" },
+        { "expr": "sum(rate(pg_stat_database_tup_updated[5m]))", "legendFormat": "Updated" },
+        { "expr": "sum(rate(pg_stat_database_tup_deleted[5m]))", "legendFormat": "Deleted" }
+      ]
+    }
+  ]
+}

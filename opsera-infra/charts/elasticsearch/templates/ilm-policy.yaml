@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-ilm-policy
+  namespace: opsera-data
+data:
+  ilm-policy.json: |
+    {
+      "policy": {
+        "phases": {
+          "hot": {
+            "min_age": "0ms",
+            "actions": {
+              "rollover": {
+                "max_age": "30d",
+                "max_size": "50gb"
+              },
+              "set_priority": { "priority": 100 }
+            }
+          },
+          "warm": {
+            "min_age": "30d",
+            "actions": {
+              "forcemerge": { "max_num_segments": 1 },
+              "shrink": { "number_of_shards": 1 },
+              "readonly": {},
+              "set_priority": { "priority": 50 }
+            }
+          },
+          "cold": {
+            "min_age": "90d",
+            "actions": {
+              "set_priority": { "priority": 0 }
+            }
+          },
+          "delete": {
+            "min_age": "365d",
+            "actions": {
+              "delete": {}
+            }
+          }
+        }
+      }
+    }
+  index-template.json: |
+    {
+      "index_patterns": ["opsera-audit-*"],
+      "data_stream": {},
+      "composed_of": [],
+      "template": {
+        "settings": {
+          "index.lifecycle.name": "opsera-audit-ilm",
+          "index.lifecycle.rollover_alias": "opsera-audit",
+          "number_of_shards": 3,
+          "number_of_replicas": 1
+        },
+        "mappings": {
+          "properties": {
+            "id":               { "type": "keyword" },
+            "event_type":       { "type": "keyword" },
+            "actor_id":         { "type": "keyword" },
+            "resource_type":    { "type": "keyword" },
+            "resource_id":      { "type": "keyword" },
+            "action":           { "type": "keyword" },
+            "payload":          { "type": "object", "dynamic": true },
+            "checksum":         { "type": "keyword", "index": false },
+            "correlation_id":   { "type": "keyword" },
+            "event_timestamp":  { "type": "date" },
+            "content":          { "type": "text", "analyzer": "standard" }
+          }
+        }
+      }
+    }

@@ -1,0 +1,58 @@
+{
+  "title": "Opsera DORA Metrics",
+  "uid": "opsera-dora-metrics",
+  "tags": ["opsera", "dora", "engineering-metrics"],
+  "refresh": "5m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Deployment Frequency (deployments/day)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 6 },
+      "targets": [{
+        "expr": "sum(increase(releases_created_total{status=\"Deployed\"}[24h]))",
+        "legendFormat": "Deployments today"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Lead Time for Changes (hours)",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 6 },
+      "targets": [{
+        "expr": "histogram_quantile(0.50, rate(release_lead_time_seconds_bucket[7d])) / 3600",
+        "legendFormat": "Median lead time (hours)"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "Change Failure Rate (%)",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 6 },
+      "targets": [{
+        "expr": "releases_created_total{status=\"Failed\"} / releases_created_total * 100",
+        "legendFormat": "Failure rate %"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "MTTR (hours)",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 6 },
+      "targets": [{
+        "expr": "histogram_quantile(0.50, rate(incident_resolution_duration_seconds_bucket[30d])) / 3600",
+        "legendFormat": "Median MTTR (hours)"
+      }]
+    },
+    {
+      "id": 5,
+      "title": "Deployment Frequency Trend (30 days)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 10 },
+      "targets": [{
+        "expr": "increase(releases_created_total{status=\"Deployed\"}[1d])",
+        "legendFormat": "Daily deployments"
+      }]
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: waf-alerts
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: waf.alerts
+      interval: 30s
+      rules:
+        - alert: WAFHighBlockRate
+          expr: |
+            rate(nginx_ingress_controller_requests{status="403"}[5m])
+            /
+            rate(nginx_ingress_controller_requests[5m]) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            team: security
+          annotations:
+            summary: "WAF is blocking > 5% of traffic"
+            description: "WAF block rate is {{ humanizePercentage $value }}. Investigate for attack wave or false positive rule."
+            runbook_url: "https://runbooks.opsera.internal/waf-high-block-rate"
+
+        - alert: WAFDown
+          expr: up{job="nginx-ingress-controller"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            team: sre
+          annotations:
+            summary: "WAF is down"
+            description: "WAF nginx-ingress-controller has been down for 2 minutes — all traffic unprotected."
+            runbook_url: "https://runbooks.opsera.internal/waf-down"
+
+        - alert: WAFLogForwardingFailed
+          expr: fluentbit_input_records_total{name="waf"} == 0
+          for: 15m
+          labels:
+            severity: warning
+            team: sre
+          annotations:
+            summary: "WAF logs not being forwarded to Elasticsearch"
+            description: "Fluent Bit has not ingested any WAF log records in 15 minutes."

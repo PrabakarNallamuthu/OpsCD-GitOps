@@ -1,0 +1,62 @@
+# ModSecurity WAF with OWASP Core Rule Set 4.x
+# Deployed as nginx-ingress-controller with ModSecurity module
+
+controller:
+  image:
+    repository: registry.k8s.io/ingress-nginx/controller
+    tag: "v1.10.0"
+
+  config:
+    enable-modsecurity: "true"
+    enable-owasp-modsecurity-crs: "true"
+    modsecurity-snippet: |
+      SecRuleEngine DetectionOnly
+      SecRequestBodyLimit 1048576
+      SecRequestBodyNoFilesLimit 131072
+      SecAuditLogFormat JSON
+      SecAuditLogType Serial
+      SecAuditLog /dev/stdout
+      SecAuditLogParts ABIJDEFHZ
+      SecAuditLogRelevantStatus "^(?:5|4(?!04))"
+      SecResponseBodyAccess Off
+
+    # Custom API exclusions to prevent false positives
+    modsecurity-custom-rules: |
+      # Allow JSON payloads with code snippets in commit messages (Release API)
+      SecRuleRemoveByTag "OWASP_CRS/WEB_ATTACK/SQL_INJECTION" "REQUEST_URI \"@beginsWith /api/v1/releases\""
+      # Allow CEL expressions in policy conditions
+      SecRuleRemoveByTag "OWASP_CRS/WEB_ATTACK/XSS" "REQUEST_URI \"@beginsWith /api/v1/policies\""
+      # Allow large JSON audit exports
+      SecRuleRemoveById 200001 200002 200003
+
+  replicaCount: 2
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"

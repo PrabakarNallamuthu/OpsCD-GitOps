@@ -1,0 +1,16 @@
+{{- if .Values.pdb.enabled }}
+{{- if lt (int .Values.hpa.minReplicas) (int .Values.pdb.minAvailable) }}
+{{- fail (printf "hpa.minReplicas (%d) must be >= pdb.minAvailable (%d) to avoid scaling conflicts" (int .Values.hpa.minReplicas) (int .Values.pdb.minAvailable)) }}
+{{- end }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "base-nestjs.fullname" . }}
+  labels:
+    {{- include "base-nestjs.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "base-nestjs.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -1,0 +1,31 @@
+# Gitleaks configuration for Opsera platform
+# Reference: https://github.com/gitleaks/gitleaks
+
+[extend]
+useDefault = true
+
+[[rules]]
+id          = "opsera-jwt-secret"
+description = "Opsera JWT signing secret"
+regex       = '''jwt[_-]?secret\s*[:=]\s*["\']?[A-Za-z0-9+/=]{32,}'''
+tags        = ["key", "JWT"]
+
+[[rules]]
+id          = "vault-token"
+description = "HashiCorp Vault token"
+regex       = '''hvs\.[A-Za-z0-9_-]{20,}'''
+tags        = ["vault", "token"]
+
+[allowlist]
+description = "Allowlisted patterns for test fixtures and documentation"
+paths       = [
+  "packages/test-utils/src/fixtures",
+  "docs/",
+  "*.md",
+  "*.example",
+]
+regexes     = [
+  '''OPSERA_TEST_SECRET''',
+  '''example_token''',
+  '''test_only_secret''',
+]

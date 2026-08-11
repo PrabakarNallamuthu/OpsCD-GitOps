@@ -1,95 +1,18 @@
+# Dev environment Helm overlay
+# HPA and PDB disabled for faster iteration
+
 global:
-  environment: dev
-  registry: ghcr.io/opsera
-  imageTag: latest
-  logLevel: debug
-  domain: dev.opsera.internal
+  env: development
+  replicaCount: 1
 
-services:
-  release-service:
-    replicaCount: 1
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "256Mi"
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-    env:
-      LOG_LEVEL: debug
-      DATABASE_URL_OVERRIDE: "postgresql://pgbouncer.opsera-data.svc.cluster.local:5432/opsera_release"
-      KAFKA_BROKERS: "opsera-kafka-kafka-bootstrap.opsera-data.svc.cluster.local:9092"
+# HPA and PDB are disabled in dev for iteration speed
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
 
-  risk-engine:
-    replicaCount: 1
-    resources:
-      requests:
-        cpu: "200m"
-        memory: "512Mi"
-      limits:
-        cpu: "1"
-        memory: "1Gi"
-    env:
-      LOG_LEVEL: debug
+pdb:
+  enabled: false
+  minAvailable: 1
 
-  policy-engine:
-    replicaCount: 1
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "256Mi"
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-    env:
-      LOG_LEVEL: debug
-
-  audit-service:
-    replicaCount: 1
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "256Mi"
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-    env:
-      LOG_LEVEL: debug
-
-  auth-service:
-    replicaCount: 1
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "256Mi"
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-    env:
-      LOG_LEVEL: debug
-      JWT_ACCESS_TTL: "900"
-      JWT_REFRESH_TTL: "604800"
-
-  bff-service:
-    replicaCount: 1
-    autoscaling:
-      enabled: false
-    env:
-      LOG_LEVEL: debug
-    ingress:
-      enabled: true
-      hosts:
-        - host: api.dev.opsera.internal
-          paths:
-            - path: /
-              pathType: Prefix
-
-  web-app:
-    replicaCount: 1
-    ingress:
-      enabled: true
-      hosts:
-        - host: dev.opsera.internal
-          paths:
-            - path: /
-              pathType: Prefix
+terminationGracePeriodSeconds: 10

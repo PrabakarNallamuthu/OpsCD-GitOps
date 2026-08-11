@@ -1,0 +1,87 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: opsera-kafka-connect
+  namespace: opsera-kafka
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+spec:
+  version: 3.7.0
+  replicas: 2
+  bootstrapServers: opsera-kafka-kafka-bootstrap:9093
+  tls:
+    trustedCertificates:
+      - secretName: opsera-kafka-cluster-ca-cert
+        certificate: ca.crt
+  authentication:
+    type: scram-sha-512
+    username: kafka-connect
+    passwordSecret:
+      secretName: kafka-connect-credentials
+      password: password
+  config:
+    group.id: opsera-connect-cluster
+    offset.storage.topic: connect-cluster-offsets
+    config.storage.topic: connect-cluster-configs
+    status.storage.topic: connect-cluster-status
+    config.storage.replication.factor: 3
+    offset.storage.replication.factor: 3
+    status.storage.replication.factor: 3
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: false
+    value.converter.schemas.enable: false
+  build:
+    output:
+      type: docker
+      image: ${REGISTRY_URL}/opsera/kafka-connect-elasticsearch:latest
+    plugins:
+      - name: elasticsearch-sink
+        artifacts:
+          - type: tgz
+            url: https://packages.confluent.io/maven/io/confluent/kafka-connect-elasticsearch/14.1.0/kafka-connect-elasticsearch-14.1.0.tar.gz
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  metricsConfig:
+    type: jmxPrometheusExporter
+    valueFrom:
+      configMapKeyRef:
+        name: kafka-connect-metrics
+        key: connect-metrics.yaml
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: elasticsearch-audit-sink
+  namespace: opsera-kafka
+  labels:
+    strimzi.io/cluster: opsera-kafka-connect
+spec:
+  class: io.confluent.connect.elasticsearch.ElasticsearchSinkConnector
+  tasksMax: 3
+  config:
+    topics: audit.events
+    connection.url: https://opsera-elasticsearch-es-http.opsera-data:9200
+    connection.username: ${file:/opt/kafka/connect-secrets/es-credentials.properties:username}
+    connection.password: ${file:/opt/kafka/connect-secrets/es-credentials.properties:password}
+    connection.ssl.enabled: true
+    type.name: _doc
+    key.ignore: true
+    schema.ignore: true
+    behavior.on.malformed.documents: warn
+    behavior.on.null.values: ignore
+    index.write.method: upsert
+    transforms: addTimestamp
+    transforms.addTimestamp.type: org.apache.kafka.connect.transforms.InsertField$Value
+    transforms.addTimestamp.timestamp.field: indexed_at
+    flush.timeout.ms: 10000
+    batch.size: 2000
+    linger.ms: 1000
+    retry.backoff.ms: 5000
+    max.retries: 3
+    read.timeout.ms: 30000

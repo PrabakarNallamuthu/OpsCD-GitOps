@@ -1,24 +1,26 @@
 {
   "name": "@opsera/prisma-config",
-  "version": "0.1.0",
-  "private": true,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
-  },
+  "version": "1.0.0",
+  "description": "Prisma ORM base configuration, connection utilities, checksum chain, and partition helpers for Opsera",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc --project tsconfig.build.json",
+    "migrate": "bash scripts/migrate.sh",
+    "seed": "ts-node seeds/runner.ts",
     "test": "jest",
-    "lint": "eslint src"
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@opsera/shared": "workspace:*"
+    "@prisma/client": "^5.17.0",
+    "prisma": "^5.17.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "ts-node": "^10.9.2",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0",
+    "ts-jest": "^29.2.0"
   }
 }
