@@ -1,0 +1,87 @@
+# syntax=docker/dockerfile:1.7
+# ─────────────────────────────────────────────────────────────────────────────
+# Opsera NestJS Service — Multi-stage Docker build template
+#
+# Usage:
+#   docker build \
+#     --build-arg SERVICE_NAME=release-service \
+#     --build-arg GIT_SHA=$(git rev-parse HEAD) \
+#     --build-arg SEMVER=0.1.0 \
+#     --build-arg BUILD_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+#     -f docker/Dockerfile.service \
+#     -t opsera/release-service:$(git rev-parse --short HEAD) \
+#     .
+# ─────────────────────────────────────────────────────────────────────────────
+
+ARG SERVICE_NAME
+ARG GIT_SHA=unknown
+ARG SEMVER=0.0.0
+ARG BUILD_TIMESTAMP=unknown
+ARG NODE_VERSION=22
+
+# ── Stage 1: Builder ──────────────────────────────────────────────────────────
+FROM node:${NODE_VERSION}-slim AS builder
+
+ARG SERVICE_NAME
+
+WORKDIR /build
+
+# Enable corepack for deterministic pnpm version
+RUN corepack enable && corepack prepare pnpm@9 --activate
+
+# Copy workspace manifests first (layer-cache friendly)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+
+# Copy all package manifests (needed for workspace resolution)
+COPY packages/shared/package.json      packages/shared/package.json
+COPY packages/logging/package.json     packages/logging/package.json
+COPY packages/kafka/package.json       packages/kafka/package.json
+COPY packages/prisma-config/package.json packages/prisma-config/package.json
+COPY services/${SERVICE_NAME}/package.json services/${SERVICE_NAME}/package.json
+
+# Install all workspace deps (frozen — no lockfile mutations)
+RUN pnpm install --frozen-lockfile
+
+# Copy full source
+COPY packages/ packages/
+COPY services/${SERVICE_NAME}/ services/${SERVICE_NAME}/
+
+# Build, create self-contained prod bundle, copy compiled output
+# pnpm deploy resolves workspace: deps into a standalone /app directory
+RUN pnpm --filter @opsera/${SERVICE_NAME} build && \
+    pnpm deploy --filter @opsera/${SERVICE_NAME} --prod /app && \
+    cp -r services/${SERVICE_NAME}/dist /app/dist
+
+# ── Stage 2: Production (distroless) ─────────────────────────────────────────
+# hadolint ignore=DL3006 — distroless tags encode the full version (nodejs22-debian12)
+FROM gcr.io/distroless/nodejs22-debian12 AS production
+
+ARG SERVICE_NAME
+ARG GIT_SHA
+ARG SEMVER
+ARG BUILD_TIMESTAMP
+
+# OCI image spec labels for build provenance & traceability
+LABEL org.opencontainers.image.title="${SERVICE_NAME}" \
+      org.opencontainers.image.description="Opsera ${SERVICE_NAME} microservice" \
+      org.opencontainers.image.source="https://github.com/opsera-io/opsera-voyage" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIMESTAMP}" \
+      org.opencontainers.image.version="${SEMVER}" \
+      org.opencontainers.image.vendor="Opsera" \
+      org.opencontainers.image.licenses="UNLICENSED"
+
+WORKDIR /app
+
+# Copy only production artifacts from builder
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist         ./dist
+COPY --from=builder /app/package.json ./package.json
+
+# Distroless node image ships with a non-root `node` user at UID 1000
+USER 1000
+
+EXPOSE 3000
+
+# distroless has no shell — use exec form directly
+CMD ["dist/main.js"]

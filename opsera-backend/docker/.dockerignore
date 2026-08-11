@@ -1,0 +1,42 @@
+# Version control
+.git
+.gitignore
+
+# Dependencies (reinstalled inside Docker)
+**/node_modules
+
+# Build outputs
+**/dist
+**/dist-test
+
+# Test artifacts
+**/__tests__
+**/*.test.ts
+**/*.spec.ts
+**/coverage
+**/.nyc_output
+
+# Environment & secrets — NEVER bake into images
+**/.env
+**/.env.*
+**/secrets/
+
+# Editor & OS
+.DS_Store
+**/.idea
+**/.vscode
+**/Thumbs.db
+
+# Docs (not needed in runtime image)
+**/README.md
+**/CONTRIBUTING.md
+**/CHANGELOG.md
+**/docs
+
+# CI configs
+.github
+.gitlab-ci.yml
+.forge
+
+# Lockfiles that aren't needed after pnpm deploy
+# pnpm-lock.yaml is KEPT — required for --frozen-lockfile

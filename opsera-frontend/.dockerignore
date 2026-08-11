@@ -1,0 +1,38 @@
+# Version control
+.git
+.gitignore
+
+# Dependencies
+node_modules
+
+# Build output (rebuilt in Docker)
+dist
+
+# Test artifacts
+coverage
+__tests__
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Environment & secrets
+.env
+.env.*
+
+# Editor & OS
+.DS_Store
+.idea
+.vscode
+Thumbs.db
+
+# Docs
+README.md
+CHANGELOG.md
+
+# Config files not needed at runtime
+vite.config.ts
+tsconfig*.json
+eslint.config.mjs
+.prettierrc
+vitest.config.ts
