@@ -1,0 +1,18 @@
+apiVersion: v2
+name: opsera-linkerd
+description: |
+  Opsera wrapper chart for the Linkerd service mesh control plane.
+  Provides mTLS for all service-to-service communication in the
+  opsera-internal and opsera-dmz trust zones (PCI-DSS requirement).
+type: application
+version: 0.1.0
+appVersion: "2.15.0"
+
+dependencies:
+  - name: linkerd-crds
+    version: "1.8.0"
+    repository: "https://helm.linkerd.io/stable"
+
+  - name: linkerd-control-plane
+    version: "1.16.0"
+    repository: "https://helm.linkerd.io/stable"

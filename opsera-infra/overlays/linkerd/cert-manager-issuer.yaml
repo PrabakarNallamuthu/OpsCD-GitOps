@@ -1,0 +1,92 @@
+---
+# cert-manager resources for Linkerd identity certificate lifecycle.
+#
+# Trust anchor (root CA):
+#   - 1 year validity, stored in Vault secret/opsera/linkerd/trust-anchor
+#   - Manually rotated by SRE following the runbook procedure
+#   - ClusterIssuer below uses this to issue identity issuer certs
+#
+# Identity issuer:
+#   - 48-hour validity, automatically renewed at 25% lifetime remaining
+#   - cert-manager Certificate resource triggers renewal
+#   - Linkerd automatically picks up the new certificate from the Secret
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: linkerd-identity-issuer
+  namespace: linkerd
+  annotations:
+    # Linkerd watches this secret and automatically rotates identity certs
+    linkerd.io/cert-manager-issuer: "linkerd-trust-anchor"
+spec:
+  # 48-hour validity — short-lived for security
+  duration: 48h
+  # Renew at 25% remaining (12 hours before expiry)
+  renewBefore: 12h
+
+  secretName: linkerd-identity-issuer-credentials
+
+  isCA: true
+  usages:
+    - cert sign
+    - crl sign
+
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+
+  subject:
+    organizations:
+      - opsera
+
+  commonName: "identity.linkerd.cluster.local"
+
+  issuerRef:
+    name: linkerd-trust-anchor
+    kind: ClusterIssuer
+    group: cert-manager.io
+
+---
+# ClusterIssuer using the trust anchor CA.
+# The trust-anchor-tls Secret is created from Vault by the External Secrets
+# Operator (WO-005). For initial bootstrap, create manually:
+#
+#   kubectl create secret tls trust-anchor-tls \
+#     --cert=trust-anchor.crt \
+#     --key=trust-anchor.key \
+#     -n cert-manager
+#
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: linkerd-trust-anchor
+spec:
+  ca:
+    secretName: trust-anchor-tls
+
+---
+# Prometheus AlertingRule: certificate expiry warning
+# Requires Prometheus Operator / monitoring stack (WO-004 range)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: linkerd-cert-alerts
+  namespace: linkerd
+  labels:
+    opsera.io/alert-tier: "infrastructure"
+spec:
+  groups:
+    - name: linkerd.certificates
+      rules:
+        - alert: LinkerdIdentityIssuerExpiringSoon
+          expr: |
+            certmanager_certificate_expiration_timestamp_seconds{
+              name="linkerd-identity-issuer", namespace="linkerd"
+            } - time() < 3600 * 24
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Linkerd identity issuer certificate expires in < 24h"
+            description: "cert-manager should have auto-renewed. Check cert-manager logs."

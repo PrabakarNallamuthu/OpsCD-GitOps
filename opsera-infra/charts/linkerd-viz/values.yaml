@@ -1,0 +1,67 @@
+# ── Linkerd Viz Extension — shared defaults ───────────────────────────────────
+#
+# Deployed to the linkerd-viz namespace.
+# Dashboard is accessible via `linkerd viz dashboard` (port-forward)
+# or via Kong ingress (configured in WO-004).
+
+linkerd-viz:
+  namespace: linkerd-viz
+
+  # Dashboard
+  dashboard:
+    replicas: 1
+
+    resources:
+      cpu:
+        request: "100m"
+        limit: "250m"
+      memory:
+        request: "50Mi"
+        limit: "150Mi"
+
+    # Restrict dashboard access — no anonymous access
+    enforcedHostRegexp: "^(localhost|127\\.0\\.0\\.1|linkerd-viz\\.opsera\\.internal)$"
+
+  # Prometheus (embedded — for small clusters)
+  # Production: replace with external Prometheus from monitoring stack
+  prometheus:
+    enabled: true
+    resources:
+      cpu:
+        request: "200m"
+        limit: "500m"
+      memory:
+        request: "256Mi"
+        limit: "1Gi"
+    # Retain 6 hours of metrics (external Prometheus ingests for long-term storage)
+    retention: "6h"
+
+  # Metrics API
+  metricsAPI:
+    replicas: 1
+    resources:
+      cpu:
+        request: "100m"
+        limit: "250m"
+      memory:
+        request: "50Mi"
+        limit: "150Mi"
+
+  # Tap (live request inspection)
+  tap:
+    replicas: 1
+    resources:
+      cpu:
+        request: "100m"
+        limit: "250m"
+      memory:
+        request: "50Mi"
+        limit: "150Mi"
+
+  # Tap injector
+  tapInjector:
+    replicas: 1
+
+  # Web
+  web:
+    replicas: 1

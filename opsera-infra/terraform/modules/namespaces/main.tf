@@ -24,24 +24,28 @@ variable "environment" {
 locals {
   namespaces = [
     {
-      name = "opsera-public"
-      zone = "public"
-      description = "Internet-facing ingress layer"
+      name              = "opsera-public"
+      zone              = "public"
+      description       = "Internet-facing ingress layer"
+      linkerd_inject    = "enabled"
     },
     {
-      name = "opsera-dmz"
-      zone = "dmz"
-      description = "API gateway and BFF services"
+      name              = "opsera-dmz"
+      zone              = "dmz"
+      description       = "API gateway and BFF services"
+      linkerd_inject    = "enabled"
     },
     {
-      name = "opsera-internal"
-      zone = "internal"
-      description = "Core microservices — no direct external access"
+      name              = "opsera-internal"
+      zone              = "internal"
+      description       = "Core microservices — no direct external access"
+      linkerd_inject    = "enabled"
     },
     {
-      name = "opsera-data"
-      zone = "data"
-      description = "Stateful services: databases, Kafka, MinIO"
+      name              = "opsera-data"
+      zone              = "data"
+      description       = "Stateful services: databases, Kafka, MinIO (own TLS)"
+      linkerd_inject    = "disabled"
     },
   ]
 }
@@ -67,6 +71,10 @@ resource "kubernetes_namespace" "trust_zones" {
 
     annotations = {
       "opsera.io/description" = each.value.description
+      # Linkerd sidecar injection (WO-002):
+      # enabled  = all pods get mTLS automatically
+      # disabled = data-zone pods use their own TLS (PostgreSQL, Kafka, Redis)
+      "linkerd.io/inject" = each.value.linkerd_inject
     }
   }
 }

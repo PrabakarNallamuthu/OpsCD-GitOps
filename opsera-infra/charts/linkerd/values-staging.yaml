@@ -1,0 +1,40 @@
+# ── Linkerd Control Plane — Staging environment ───────────────────────────────
+
+linkerd-control-plane:
+  namespace: linkerd
+
+  identity:
+    issuer:
+      scheme: kubernetes.io/tls
+      crtExpiry: "48h"
+
+  proxy:
+    resources:
+      cpu:
+        request: "100m"
+        limit: "500m"
+      memory:
+        request: "50Mi"
+        limit: "150Mi"
+
+  controllerReplicas: 2
+
+  destinationResources:
+    cpu:
+      request: "200m"
+      limit: "500m"
+    memory:
+      request: "100Mi"
+      limit: "250Mi"
+
+  linkerdVersion: "stable-2.15.0"
+  enableEndpointSlices: true
+  enablePodAntiAffinity: true
+
+  highAvailability: false
+
+  podDisruptionBudget:
+    minAvailable: 1
+
+linkerd-crds:
+  {}

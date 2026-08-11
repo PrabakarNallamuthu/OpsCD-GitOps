@@ -1,0 +1,14 @@
+apiVersion: v2
+name: opsera-linkerd-viz
+description: |
+  Opsera wrapper chart for the Linkerd Viz extension.
+  Provides per-service golden metrics (request rate, success rate,
+  latency percentiles) and live tap for traffic inspection.
+type: application
+version: 0.1.0
+appVersion: "2.15.0"
+
+dependencies:
+  - name: linkerd-viz
+    version: "30.12.0"
+    repository: "https://helm.linkerd.io/stable"

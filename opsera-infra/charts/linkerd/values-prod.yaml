@@ -1,0 +1,46 @@
+# ── Linkerd Control Plane — Production environment ────────────────────────────
+#
+# High Availability mode: 3 replicas of each control plane component.
+# PodDisruptionBudget ensures at least 2 replicas remain during node maintenance.
+# Pod anti-affinity spreads control plane pods across nodes.
+
+linkerd-control-plane:
+  namespace: linkerd
+
+  identity:
+    issuer:
+      scheme: kubernetes.io/tls
+      crtExpiry: "48h"
+
+  proxy:
+    resources:
+      cpu:
+        request: "100m"
+        limit: "500m"
+      memory:
+        request: "50Mi"
+        limit: "150Mi"
+    # Production estimate: 8 services × 3 replicas = 24 sidecars × 50MB = 1.2GB
+
+  controllerReplicas: 3
+
+  destinationResources:
+    cpu:
+      request: "300m"
+      limit: "1000m"
+    memory:
+      request: "150Mi"
+      limit: "400Mi"
+
+  linkerdVersion: "stable-2.15.0"
+  enableEndpointSlices: true
+  enablePodAntiAffinity: true
+
+  # HA mode: distributes control plane replicas for resilience
+  highAvailability: true
+
+  podDisruptionBudget:
+    minAvailable: 2
+
+linkerd-crds:
+  {}

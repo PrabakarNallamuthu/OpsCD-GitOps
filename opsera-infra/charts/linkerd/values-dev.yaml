@@ -1,0 +1,60 @@
+# ── Linkerd Control Plane — Dev environment ───────────────────────────────────
+#
+# Trust anchor CA cert is generated via cert-manager ClusterIssuer.
+# Private key is stored in Vault (path: secret/opsera/linkerd/trust-anchor).
+# For initial bootstrap, a self-signed cert-manager issuer is used.
+#
+# Certificate lifecycle:
+#   trust anchor   : 1 year validity, manually rotated (stored in Vault)
+#   identity issuer: 48 hours validity, cert-manager auto-renewed at 25% remaining
+
+linkerd-control-plane:
+  # Namespace for control plane components
+  namespace: linkerd
+
+  # Identity configuration (cert-manager manages issuer cert rotation)
+  identity:
+    issuer:
+      scheme: kubernetes.io/tls  # cert-manager populates this Secret
+      crtExpiry: "48h"
+
+  # Proxy resource limits per sidecar (50MB memory budget)
+  proxy:
+    resources:
+      cpu:
+        request: "100m"
+        limit: "250m"
+      memory:
+        request: "50Mi"
+        limit: "100Mi"
+    # Kafka ports bypass — skip proxying outbound Kafka connections
+    outboundDiscoveryCacheUnusedTimeout: "5s"
+
+  # Control plane component sizing (dev: single replica)
+  controllerReplicas: 1
+  destinationResources:
+    cpu:
+      request: "100m"
+      limit: "250m"
+    memory:
+      request: "50Mi"
+      limit: "150Mi"
+
+  # Disable debug mode in all environments
+  linkerdVersion: "stable-2.15.0"
+  enableEndpointSlices: true
+  enablePodAntiAffinity: false  # dev: no anti-affinity needed
+
+  # High Availability disabled in dev
+  highAvailability: false
+
+  # Prometheus scraping annotations
+  prometheusUrl: ""
+
+  # PodDisruptionBudget (dev: no disruption budget needed)
+  podDisruptionBudget:
+    minAvailable: 0
+
+linkerd-crds:
+  # CRDs are cluster-scoped — no namespace needed
+  {}

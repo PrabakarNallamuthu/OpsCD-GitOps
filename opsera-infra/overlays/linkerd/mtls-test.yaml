@@ -1,0 +1,128 @@
+---
+# Integration test: verify mTLS between two pods in opsera-internal namespace.
+#
+# Steps:
+#   1. Apply this manifest
+#   2. kubectl apply -f mtls-test.yaml
+#   3. Wait for httpbin pod to be ready
+#   4. Exec into curl-test and make a request:
+#      kubectl exec -n opsera-internal deploy/curl-test -- \
+#        curl -sS http://httpbin.opsera-internal.svc.cluster.local/get
+#   5. Verify mTLS with linkerd viz tap:
+#      linkerd viz tap ns/opsera-internal --to svc/httpbin
+#      — Look for "tls=true" in the output
+#   6. Clean up: kubectl delete -f mtls-test.yaml
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpbin
+  namespace: opsera-internal
+  labels:
+    app: httpbin
+    opsera.io/purpose: mtls-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: httpbin
+  template:
+    metadata:
+      labels:
+        app: httpbin
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: httpbin
+          image: kennethreitz/httpbin:latest
+          ports:
+            - containerPort: 80
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin
+  namespace: opsera-internal
+spec:
+  selector:
+    app: httpbin
+  ports:
+    - port: 80
+      targetPort: 80
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: curl-test
+  namespace: opsera-internal
+  labels:
+    app: curl-test
+    opsera.io/purpose: mtls-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: curl-test
+  template:
+    metadata:
+      labels:
+        app: curl-test
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: curl
+          image: curlimages/curl:8.4.0
+          command: ["sleep", "3600"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+---
+# Test pod in opsera-data — verify NO sidecar injection
+apiVersion: v1
+kind: Pod
+metadata:
+  name: data-zone-test
+  namespace: opsera-data
+  labels:
+    opsera.io/purpose: no-injection-test
+  annotations:
+    # Namespace has inject=disabled; this annotation makes it explicit
+    linkerd.io/inject: disabled
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: test
+      image: curlimages/curl:8.4.0
+      command: ["sleep", "60"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]

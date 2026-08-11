@@ -1,0 +1,59 @@
+---
+# Linkerd sidecar injection configuration per namespace.
+# Applied via kubectl apply or integrated into Terraform namespace module.
+#
+# Rules:
+#   opsera-public   : inject=enabled  (internet-facing — needs mTLS for DMZ comm)
+#   opsera-dmz      : inject=enabled  (API gateway, BFF — needs mTLS for internal comm)
+#   opsera-internal : inject=enabled  (core microservices — primary mTLS zone)
+#   opsera-data     : inject=disabled (data stores use their own TLS: PostgreSQL, Kafka)
+
+# Note: These patch existing namespaces created by Terraform (WO-001).
+# In production, namespace annotations are managed by the Terraform namespaces module.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opsera-public
+  labels:
+    opsera.io/zone: public
+    opsera.io/managed-by: terraform
+  annotations:
+    linkerd.io/inject: enabled
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opsera-dmz
+  labels:
+    opsera.io/zone: dmz
+    opsera.io/managed-by: terraform
+  annotations:
+    linkerd.io/inject: enabled
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opsera-internal
+  labels:
+    opsera.io/zone: internal
+    opsera.io/managed-by: terraform
+  annotations:
+    linkerd.io/inject: enabled
+
+---
+# opsera-data: injection DISABLED
+# Data stores (PostgreSQL, Redis, Kafka) manage their own TLS.
+# Adding Linkerd sidecar would create double-encryption overhead and
+# can interfere with low-level TCP protocols used by database drivers.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opsera-data
+  labels:
+    opsera.io/zone: data
+    opsera.io/managed-by: terraform
+  annotations:
+    linkerd.io/inject: disabled

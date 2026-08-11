@@ -1,0 +1,97 @@
+---
+# Kafka consumer pod annotation pattern.
+#
+# Problem: Linkerd intercepts all outbound TCP connections, including Kafka
+# broker connections on port 9092 (plaintext) and 9093 (TLS). For high-
+# throughput Kafka consumers, the proxy overhead (~1-2ms per hop) is
+# unacceptable. Kafka has its own TLS layer, so Linkerd mTLS adds no security
+# benefit for broker connections.
+#
+# Solution: config.linkerd.io/skip-outbound-ports=9092,9093
+# This annotation tells the Linkerd proxy to bypass proxying for connections
+# to ports 9092 and 9093, allowing direct TLS to Kafka brokers.
+#
+# IMPORTANT: ALL Kafka consumer Deployments MUST include these annotations.
+# Add them to the Pod template spec, not the Deployment metadata.
+#
+# Example Deployment (use as template for all Kafka consumer services):
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-kafka-consumer
+  namespace: opsera-internal
+  labels:
+    app: example-kafka-consumer
+    opsera.io/type: kafka-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: example-kafka-consumer
+  template:
+    metadata:
+      labels:
+        app: example-kafka-consumer
+      annotations:
+        # Linkerd is still injected (mTLS for service-to-service calls)
+        linkerd.io/inject: enabled
+        # BUT: skip proxy for outbound Kafka broker connections
+        # 9092 = Kafka plaintext (used internally within cluster)
+        # 9093 = Kafka TLS (broker-to-broker, external producers)
+        config.linkerd.io/skip-outbound-ports: "9092,9093"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: consumer
+          image: opsera/example-service:latest
+          env:
+            - name: KAFKA_BROKERS
+              value: "kafka-headless.opsera-data.svc.cluster.local:9092"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+---
+# Pod Disruption Budget for Linkerd control plane
+# Ensures minimum availability during node drains and rolling updates
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: linkerd-destination-pdb
+  namespace: linkerd
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      linkerd.io/control-plane-component: destination
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: linkerd-identity-pdb
+  namespace: linkerd
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      linkerd.io/control-plane-component: identity
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: linkerd-proxy-injector-pdb
+  namespace: linkerd
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      linkerd.io/control-plane-component: proxy-injector
