@@ -1,0 +1,66 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: opsera-smoke-test
+  namespace: opsera-internal
+  labels:
+    app: opsera-smoke-test
+    opsera.io/managed-by: terraform
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: opsera-smoke-test
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: smoke-test
+          image: curlimages/curl:8.4.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "=== Opsera Cluster Smoke Test ==="
+
+              echo "[1/3] DNS resolution check..."
+              nslookup kubernetes.default.svc.cluster.local
+              echo "✓ DNS resolution OK"
+
+              echo "[2/3] Kubernetes API connectivity..."
+              APISERVER="https://kubernetes.default.svc"
+              SERVICEACCOUNT="/var/run/secrets/kubernetes.io/serviceaccount"
+              TOKEN=$(cat "${SERVICEACCOUNT}/token")
+              CACERT="${SERVICEACCOUNT}/ca.crt"
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                --cacert "${CACERT}" \
+                --header "Authorization: Bearer ${TOKEN}" \
+                "${APISERVER}/api/v1/namespaces")
+              if [ "$HTTP_CODE" != "200" ]; then
+                echo "ERROR: API server returned HTTP ${HTTP_CODE}"
+                exit 1
+              fi
+              echo "✓ Kubernetes API accessible (HTTP 200)"
+
+              echo "[3/3] Namespace listing (RBAC check)..."
+              NAMESPACES=$(curl -s \
+                --cacert "${CACERT}" \
+                --header "Authorization: Bearer ${TOKEN}" \
+                "${APISERVER}/api/v1/namespaces" | grep -o '"name":"opsera-[^"]*"' || true)
+              echo "Opsera namespaces found: ${NAMESPACES}"
+              echo "✓ RBAC allows namespace read"
+
+              echo "=== Smoke test PASSED ==="
