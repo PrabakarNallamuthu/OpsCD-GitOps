@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "com.opsera.verification.completed.v1",
+  "title": "VerificationCompleted",
+  "type": "object",
+  "required": ["eventId", "eventType", "schemaVersion", "timestamp", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "type": "string", "const": "verification.completed" },
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string", "format": "uuid" },
+    "payload": {
+      "type": "object",
+      "required": ["verificationId", "releaseId", "verdict", "checksRun"],
+      "properties": {
+        "verificationId": { "type": "string", "format": "uuid" },
+        "releaseId": { "type": "string", "format": "uuid" },
+        "verdict": { "type": "string", "enum": ["pass", "fail", "warn"] },
+        "checksRun": { "type": "integer", "minimum": 0 },
+        "checksFailed": { "type": "integer", "minimum": 0 },
+        "anomaliesDetected": { "type": "boolean" },
+        "durationMs": { "type": "integer" }
+      }
+    }
+  }
+}

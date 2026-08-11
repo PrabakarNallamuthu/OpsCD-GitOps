@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "com.opsera.audit.record.v1",
+  "title": "AuditRecord",
+  "type": "object",
+  "required": ["eventId", "eventType", "schemaVersion", "timestamp", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "type": "string" },
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string", "format": "uuid" },
+    "payload": {
+      "type": "object",
+      "required": ["actorId", "resourceType", "resourceId", "action", "complianceFrameworks"],
+      "properties": {
+        "actorId": { "type": "string" },
+        "resourceType": { "type": "string" },
+        "resourceId": { "type": "string" },
+        "action": { "type": "string" },
+        "outcome": { "type": "string", "enum": ["success", "failure", "partial"] },
+        "complianceFrameworks": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["SOX", "SOC2", "PCI-DSS", "GDPR", "HIPAA"] }
+        },
+        "metadata": { "type": "object" }
+      }
+    }
+  }
+}
