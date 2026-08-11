@@ -1,0 +1,85 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["release"]
+}
+
+model Release {
+  id                    String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name                  String          @db.VarChar(200)
+  version               String?         @db.VarChar(50)
+  status                ReleaseStatus   @default(Draft)
+  target_environment_id String          @db.Uuid
+  creator_id            String          @db.Uuid
+  recommendation        String?         @db.VarChar(20)
+  description           String?         @db.Text
+  risk_score            Int?
+  risk_level            String?         @db.VarChar(20)
+  org_id                String          @db.Uuid
+  created_at            DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime        @updatedAt @db.Timestamptz(6)
+  deleted_at            DateTime?       @db.Timestamptz(6)
+
+  changes               Change[]
+  deployment_plan       DeploymentPlan?
+
+  @@index([status, created_at(sort: Desc)])
+  @@index([creator_id, created_at(sort: Desc)])
+  @@index([target_environment_id])
+  @@index([org_id, status])
+  @@schema("release")
+}
+
+enum ReleaseStatus {
+  Draft
+  Analyzing
+  Analyzed
+  Approved
+  Rejected
+  Planned
+  Deploying
+  Deployed
+  Failed
+
+  @@schema("release")
+}
+
+model Change {
+  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  release_id    String   @db.Uuid
+  commit_sha    String?  @db.VarChar(40)
+  pr_reference  String?  @db.VarChar(100)
+  author        String   @db.VarChar(200)
+  message       String   @db.Text
+  files_changed Json?
+  metadata      Json?
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  release       Release  @relation(fields: [release_id], references: [id], onDelete: Cascade)
+
+  @@index([release_id])
+  @@schema("release")
+}
+
+model DeploymentPlan {
+  id                   String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  release_id           String   @unique @db.Uuid
+  strategy             String   @db.VarChar(50)  // rolling | canary | blue-green
+  rollback_triggers    Json?
+  pre_deployment_checks Json?
+  post_deployment_checks Json?
+  estimated_duration_sec Int?
+  canary_percentage    Int      @default(10)
+  created_at           DateTime @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime @updatedAt @db.Timestamptz(6)
+
+  release              Release  @relation(fields: [release_id], references: [id], onDelete: Cascade)
+
+  @@schema("release")
+}

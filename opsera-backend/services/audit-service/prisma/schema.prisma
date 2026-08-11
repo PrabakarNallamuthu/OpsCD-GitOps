@@ -1,0 +1,54 @@
+// NOTE: The audit_records table is defined in raw SQL (partitioned) — see migrations/
+// Prisma model below maps to the partitioned table for type-safe client generation.
+
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["audit"]
+}
+
+// Append-only audit records with SHA-256 hash chain.
+// PARTITIONED BY RANGE (event_timestamp) — monthly partitions via pg_partman.
+// Application role (audit_app_role) has INSERT and SELECT only.
+model AuditRecord {
+  id                  String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  event_type          String   @db.VarChar(100)
+  actor_id            String   @db.Uuid
+  resource_type       String   @db.VarChar(100)
+  resource_id         String   @db.Uuid
+  action              String   @db.VarChar(50)
+  payload             Json     @default("{}")
+  checksum            String   @db.VarChar(64)  // SHA-256 hex
+  previous_checksum   String   @db.VarChar(64)
+  correlation_id      String   @db.VarChar(64)
+  compliance_frameworks Json   @default("[]")
+  pii_key_version     String?  @db.VarChar(50)
+  event_timestamp     DateTime @db.Timestamptz(6)
+
+  @@index([actor_id, event_timestamp(sort: Desc)])
+  @@index([resource_type, resource_id, event_timestamp(sort: Desc)])
+  @@index([correlation_id])
+  @@schema("audit")
+  @@map("records")
+}
+
+model PartitionMetadata {
+  id                String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  partition_name    String    @unique @db.VarChar(100)
+  start_date        DateTime  @db.Timestamptz(6)
+  end_date          DateTime  @db.Timestamptz(6)
+  status            String    @db.VarChar(20) @default("active")  // active | archived | dropped
+  record_count      BigInt    @default(0)
+  archived_location String?   @db.VarChar(500)
+  archived_at       DateTime? @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([status])
+  @@schema("audit")
+}

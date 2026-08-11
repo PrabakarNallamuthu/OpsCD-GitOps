@@ -1,0 +1,89 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["policy"]
+}
+
+enum PolicySeverity {
+  Info
+  Warning
+  Blocking
+
+  @@schema("policy")
+}
+
+enum EvaluationResult {
+  Pass
+  Fail
+  Error
+
+  @@schema("policy")
+}
+
+model PolicyRule {
+  id                      String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name                    String          @unique @db.VarChar(200)
+  description             String?         @db.Text
+  version                 Int             @default(1)
+  condition_expression    String          @db.Text  // CEL expression
+  severity_level          PolicySeverity  @default(Warning)
+  applicable_environments Json            @default("[]")  // string[] of env slugs
+  compliance_frameworks   Json            @default("[]")  // string[] of framework codes
+  is_active               Boolean         @default(true)
+  created_by              String          @db.Uuid
+  org_id                  String          @db.Uuid
+  created_at              DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime        @updatedAt @db.Timestamptz(6)
+
+  versions    PolicyRuleVersion[]
+  evaluations PolicyEvaluation[]
+
+  @@index([is_active, severity_level])
+  @@index([org_id, is_active])
+  @@schema("policy")
+}
+
+// Immutable snapshot of every policy version — no UPDATE or DELETE via app role
+model PolicyRuleVersion {
+  id                      String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  rule_id                 String         @db.Uuid
+  version                 Int
+  name                    String         @db.VarChar(200)
+  condition_expression    String         @db.Text
+  severity_level          PolicySeverity
+  applicable_environments Json
+  compliance_frameworks   Json
+  created_by              String         @db.Uuid
+  created_at              DateTime       @default(now()) @db.Timestamptz(6)
+
+  rule                    PolicyRule     @relation(fields: [rule_id], references: [id], onDelete: Cascade)
+
+  @@unique([rule_id, version])
+  @@index([rule_id])
+  @@schema("policy")
+}
+
+// Append-only evaluation records — no UPDATE or DELETE via app role
+model PolicyEvaluation {
+  id                    String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  assessment_id         String           @db.Uuid
+  rule_id               String           @db.Uuid
+  rule_version          Int
+  result                EvaluationResult
+  input_context         Json
+  findings              Json             @default("[]")
+  compliance_frameworks Json             @default("[]")
+  evaluated_at          DateTime         @default(now()) @db.Timestamptz(6)
+
+  rule                  PolicyRule       @relation(fields: [rule_id], references: [id])
+
+  @@index([assessment_id])
+  @@index([rule_id, evaluated_at(sort: Desc)])
+  @@schema("policy")
+}

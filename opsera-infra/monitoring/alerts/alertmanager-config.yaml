@@ -1,0 +1,80 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: opsera-alertmanager-config
+  namespace: monitoring
+spec:
+  route:
+    groupBy: ['alertname', 'service', 'namespace']
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+    receiver: slack-platform
+    routes:
+      - matchers:
+          - name: severity
+            value: critical
+        receiver: pagerduty-critical
+        groupWait: 5m
+        repeatInterval: 2h
+        continue: true
+      - matchers:
+          - name: severity
+            value: critical
+        receiver: slack-critical
+      - matchers:
+          - name: severity
+            value: warning
+        receiver: slack-platform
+        groupWait: 10m
+
+  receivers:
+    - name: slack-platform
+      slackConfigs:
+        - apiURL:
+            name: alertmanager-slack-webhook
+            key: webhook-url
+          channel: '#platform-alerts'
+          iconEmoji: ':warning:'
+          title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+          text: |
+            {{ range .Alerts }}
+            *Alert:* {{ .Labels.alertname }}
+            *Severity:* {{ .Labels.severity }}
+            *Service:* {{ .Labels.service }}
+            *Description:* {{ .Annotations.description }}
+            *Runbook:* {{ .Annotations.runbook_url }}
+            {{ end }}
+          sendResolved: true
+
+    - name: slack-critical
+      slackConfigs:
+        - apiURL:
+            name: alertmanager-slack-webhook
+            key: webhook-url
+          channel: '#platform-incidents'
+          iconEmoji: ':fire:'
+          title: '[CRITICAL] {{ .CommonLabels.alertname }} — IMMEDIATE ACTION REQUIRED'
+          text: |
+            @here <!channel>
+            {{ range .Alerts }}
+            *Alert:* {{ .Labels.alertname }}
+            *Service:* {{ .Labels.service }}
+            *Description:* {{ .Annotations.description }}
+            *Runbook:* {{ .Annotations.runbook_url }}
+            {{ end }}
+          sendResolved: true
+
+    - name: pagerduty-critical
+      pagerdutyConfigs:
+        - routingKey:
+            name: alertmanager-pagerduty-key
+            key: routing-key
+          severity: critical
+          description: '{{ .CommonLabels.alertname }}: {{ .CommonAnnotations.description }}'
+          details:
+            - key: runbook
+              value: '{{ .CommonAnnotations.runbook_url }}'
+            - key: namespace
+              value: '{{ .CommonLabels.namespace }}'
+          sendResolved: true

@@ -1,0 +1,110 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["analytics"]
+}
+
+enum DoraEventType {
+  Deployment
+  IncidentOpened
+  IncidentResolved
+  PullRequestMerged
+  BuildFailed
+
+  @@schema("analytics")
+}
+
+enum PeriodType {
+  Daily
+  Weekly
+  Monthly
+  Quarterly
+
+  @@schema("analytics")
+}
+
+// Partitioned by event_timestamp (monthly) — raw DORA event store
+model DoraEvent {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  event_type      DoraEventType
+  service_id      String        @db.VarChar(100)
+  team_id         String        @db.Uuid
+  org_id          String        @db.Uuid
+  release_id      String?       @db.Uuid
+  commit_sha      String?       @db.VarChar(40)
+  lead_time_secs  Int?
+  payload         Json          @default("{}")
+  event_timestamp DateTime      @db.Timestamptz(6)
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+
+  @@index([team_id, event_timestamp(sort: Desc)])
+  @@index([service_id, event_timestamp(sort: Desc)])
+  @@index([event_type, event_timestamp(sort: Desc)])
+  @@schema("analytics")
+}
+
+// Pre-aggregated DORA metrics — partitioned by period_date (monthly)
+model DeliveryMetric {
+  id                    String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  team_id               String     @db.Uuid
+  service_id            String     @db.VarChar(100)
+  period_type           PeriodType
+  period_date           DateTime   @db.Timestamptz(6)  // start of period
+  deployment_count      Int        @default(0)
+  deployment_frequency  Decimal    @db.Decimal(10, 4)  // deployments per day
+  lead_time_median_secs Int?
+  lead_time_p95_secs    Int?
+  change_failure_rate   Decimal    @db.Decimal(6, 4)
+  mttr_median_secs      Int?
+  mttr_p95_secs         Int?
+  incident_count        Int        @default(0)
+  computed_at           DateTime   @default(now()) @db.Timestamptz(6)
+
+  @@unique([team_id, service_id, period_type, period_date])
+  @@index([team_id, period_date(sort: Desc)])
+  @@index([service_id, period_date(sort: Desc)])
+  @@index([computed_at(sort: Desc)])
+  @@schema("analytics")
+}
+
+// Time-series risk scores per release — partitioned by recorded_at (monthly)
+model RiskScoreTrend {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  team_id     String   @db.Uuid
+  service_id  String   @db.VarChar(100)
+  release_id  String   @db.Uuid
+  risk_score  Int
+  risk_level  String   @db.VarChar(20)
+  recorded_at DateTime @db.Timestamptz(6)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([team_id, recorded_at(sort: Desc)])
+  @@index([service_id, recorded_at(sort: Desc)])
+  @@schema("analytics")
+}
+
+// Team-level rollup aggregations
+model TeamAggregation {
+  id                      String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  team_id                 String   @db.Uuid
+  org_id                  String   @db.Uuid
+  period_type             PeriodType
+  period_date             DateTime @db.Timestamptz(6)
+  total_releases          Int      @default(0)
+  successful_releases     Int      @default(0)
+  avg_risk_score          Decimal  @db.Decimal(5, 2)
+  avg_lead_time_hours     Decimal  @db.Decimal(8, 2)
+  avg_deployment_freq     Decimal  @db.Decimal(8, 4)
+  compliance_score        Decimal  @db.Decimal(5, 2)
+  computed_at             DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([team_id, period_type, period_date])
+  @@index([org_id, period_date(sort: Desc)])
+  @@schema("analytics")
+}

@@ -137,56 +137,240 @@ stages:
           VAULT_TOKEN: "{{ vault.token }}"
         script: opsera-infra/forge/scripts/cosign-sign.sh
 
-  # ── Stage 4: Deploy to Dev ───────────────────────────────────────────────────
-  - name: DeployDev
+  # ── Stage 4: Manual Approval Gate ──────────────────────────────────────────
+  # WO-013: Approval gate with audit recording before any deployment
+  - name: ApprovalGate
     depends_on: [Push]
+    approval:
+      required: true
+      roles: [ReleaseManager, Admin]
+      timeout: 8h
+      presentation:
+        show_scan_summary: true
+        show_artifacts: true
+        show_changelog: true
+    steps:
+      - id: gate:record-audit
+        name: Record Approval Decision in Audit Trail
+        environment:
+          AUDIT_SERVICE_URL: "{{ env.AUDIT_SERVICE_URL }}"
+          APPROVER_ID: "{{ approval.approver.id }}"
+          APPROVER_EMAIL: "{{ approval.approver.email }}"
+          APPROVAL_DECISION: "{{ approval.decision }}"
+          PIPELINE_CORRELATION_ID: "{{ pipeline.id }}"
+        script: opsera-infra/forge/scripts/record-approval-audit.sh
+        on_reject:
+          notify:
+            - type: slack
+              channel: "#platform-deployments"
+              message: |
+                ⛔ *Deployment REJECTED* by {{ approval.approver.email }}
+                Branch: {{ git.branch }} | Commit: {{ git.sha | truncate(8) }}
+                Pipeline: {{ pipeline.id }}
+
+  # ── Stage 5: Deploy to Dev ───────────────────────────────────────────────────
+  - name: DeployDev
+    depends_on: [ApprovalGate]
     steps:
       - id: deploy:dev
         name: Helm Deploy to Dev Cluster
         environment:
           KUBECONFIG: "{{ vault.secret.kubeconfig.dev }}"
         script: |
-          helm upgrade --install opsera-voyage opsera-infra/helm/charts/release-service \
-            --namespace opsera-internal \
-            --values opsera-infra/helm/environments/dev/values.yaml \
-            --set global.image.tag="${GIT_SHA}" \
-            --wait --timeout 5m
+          set -euo pipefail
+          SERVICES=("release-service" "risk-engine" "policy-engine" "audit-service"
+                    "verification-service" "analytics-service" "auth-service" "bff-service" "frontend")
+          for SVC in "${SERVICES[@]}"; do
+            helm upgrade --install "opsera-${SVC}" "opsera-infra/helm/charts/base-nestjs" \
+              --namespace opsera-internal \
+              --values "opsera-infra/helm/environments/dev/values.yaml" \
+              --set "global.image.tag=${GIT_SHA}" \
+              --set "global.serviceName=${SVC}" \
+              --wait --timeout 5m
+          done
 
-  # ── Stage 5: Staging Approval + Deploy ──────────────────────────────────────
+      - id: test:smoke-dev
+        name: Smoke Tests (Dev)
+        depends_on: [deploy:dev]
+        environment:
+          BASE_URL: "{{ env.DEV_BASE_URL }}"
+        script: |
+          chmod +x opsera-infra/tests/smoke/smoke-test.sh
+          BASE_URL="${BASE_URL}" RETRIES=8 RETRY_DELAY=15 \
+            opsera-infra/tests/smoke/smoke-test.sh
+
+      - id: test:contract-dev
+        name: API Contract Tests (Dev)
+        depends_on: [test:smoke-dev]
+        environment:
+          BASE_URL: "{{ env.DEV_BASE_URL }}"
+        script: |
+          chmod +x opsera-infra/tests/contract/validate-contracts.sh
+          BASE_URL="${BASE_URL}" opsera-infra/tests/contract/validate-contracts.sh
+
+    on_failure:
+      steps:
+        - id: rollback:dev
+          name: Rollback Dev
+          script: |
+            SERVICES=("release-service" "risk-engine" "policy-engine" "audit-service"
+                      "verification-service" "analytics-service" "auth-service" "bff-service")
+            for SVC in "${SERVICES[@]}"; do
+              helm rollback "opsera-${SVC}" 0 -n opsera-internal || true
+            done
+      notify:
+        - type: slack
+          channel: "#platform-deployments"
+          message: |
+            🚨 *Dev deployment FAILED* | {{ pipeline.id }}
+            Step: {{ failed_step.id }}
+            Branch: {{ git.branch }} | Commit: {{ git.sha | truncate(8) }}
+
+  # ── Stage 6: Staging Canary Deploy ──────────────────────────────────────────
   - name: DeployStaging
     depends_on: [DeployDev]
-    approval:
-      required: true
-      approvers: [release-managers]
-      timeout: 2h
     steps:
-      - id: deploy:staging
-        name: Helm Deploy to Staging
+      - id: deploy:staging-canary
+        name: Canary Deploy to Staging (10% traffic, 15 min)
         environment:
           KUBECONFIG: "{{ vault.secret.kubeconfig.staging }}"
         script: |
-          helm upgrade --install opsera-voyage opsera-infra/helm/charts/release-service \
-            --namespace opsera-internal \
-            --values opsera-infra/helm/environments/staging/values.yaml \
-            --set global.image.tag="${GIT_SHA}" \
-            --wait --timeout 10m
+          set -euo pipefail
+          SERVICES=("release-service" "risk-engine" "policy-engine" "audit-service"
+                    "verification-service" "analytics-service" "auth-service" "bff-service" "frontend")
+          for SVC in "${SERVICES[@]}"; do
+            # Deploy canary with 10% weight via Linkerd TrafficSplit
+            helm upgrade --install "opsera-${SVC}-canary" "opsera-infra/helm/charts/base-nestjs" \
+              --namespace opsera-staging \
+              --values "opsera-infra/helm/environments/staging/values.yaml" \
+              --set "global.image.tag=${GIT_SHA}" \
+              --set "global.serviceName=${SVC}" \
+              --set "canary.enabled=true" \
+              --set "canary.weight=10" \
+              --wait --timeout 5m
+          done
 
-  # ── Stage 6: Production Approval + Deploy ───────────────────────────────────
+      - id: test:canary-wait
+        name: Canary Soak Period (15 minutes)
+        depends_on: [deploy:staging-canary]
+        script: |
+          echo "Waiting 15 minutes for canary metrics to stabilize..."
+          sleep 900
+
+      - id: test:load-staging
+        name: k6 Load Test (200 VUs, p95 < 500ms)
+        depends_on: [test:canary-wait]
+        image: grafana/k6:latest
+        environment:
+          BASE_URL: "{{ env.STAGING_BASE_URL }}"
+          AUTH_TOKEN: "{{ vault.secret.staging.load_test_token }}"
+        script: |
+          k6 run \
+            --env BASE_URL="${BASE_URL}" \
+            --env AUTH_TOKEN="${AUTH_TOKEN}" \
+            opsera-infra/tests/load/k6-staging.js
+
+      - id: deploy:staging-full
+        name: Promote Canary to Full Staging Deployment
+        depends_on: [test:load-staging]
+        environment:
+          KUBECONFIG: "{{ vault.secret.kubeconfig.staging }}"
+        script: |
+          set -euo pipefail
+          SERVICES=("release-service" "risk-engine" "policy-engine" "audit-service"
+                    "verification-service" "analytics-service" "auth-service" "bff-service" "frontend")
+          for SVC in "${SERVICES[@]}"; do
+            helm upgrade --install "opsera-${SVC}" "opsera-infra/helm/charts/base-nestjs" \
+              --namespace opsera-staging \
+              --values "opsera-infra/helm/environments/staging/values.yaml" \
+              --set "global.image.tag=${GIT_SHA}" \
+              --set "global.serviceName=${SVC}" \
+              --set "canary.enabled=false" \
+              --wait --timeout 10m
+            # Delete canary release
+            helm delete "opsera-${SVC}-canary" -n opsera-staging || true
+          done
+
+    on_failure:
+      steps:
+        - id: rollback:staging
+          name: Rollback Staging Canary
+          script: |
+            SERVICES=("release-service" "risk-engine" "policy-engine" "audit-service"
+                      "verification-service" "analytics-service" "auth-service" "bff-service")
+            for SVC in "${SERVICES[@]}"; do
+              helm delete "opsera-${SVC}-canary" -n opsera-staging || true
+            done
+      notify:
+        - type: slack
+          channel: "#platform-incidents"
+          message: |
+            🚨 *Staging deployment FAILED* | {{ pipeline.id }}
+            Step: {{ failed_step.id }} | Branch: {{ git.branch }}
+
+  # ── Stage 7: Production Approval + Rolling Deploy ────────────────────────────
   - name: DeployProduction
     depends_on: [DeployStaging]
     approval:
       required: true
-      approvers: [release-managers, sre-leads]
+      roles: [ReleaseManager, Admin]
       min_approvals: 2
       timeout: 4h
+      presentation:
+        show_staging_metrics: true
+        show_scan_summary: true
     steps:
+      - id: gate:prod-audit
+        name: Record Production Approval in Audit Trail
+        environment:
+          AUDIT_SERVICE_URL: "{{ env.AUDIT_SERVICE_URL }}"
+          APPROVER_ID: "{{ approval.approver.id }}"
+          APPROVAL_DECISION: "{{ approval.decision }}"
+          PIPELINE_CORRELATION_ID: "{{ pipeline.id }}"
+          ENVIRONMENT: production
+        script: opsera-infra/forge/scripts/record-approval-audit.sh
+
       - id: deploy:production
-        name: Helm Deploy to Production
+        name: Rolling Deploy to Production (maxSurge 25%, maxUnavailable 0)
+        depends_on: [gate:prod-audit]
         environment:
           KUBECONFIG: "{{ vault.secret.kubeconfig.production }}"
         script: |
-          helm upgrade --install opsera-voyage opsera-infra/helm/charts/release-service \
-            --namespace opsera-internal \
-            --values opsera-infra/helm/environments/production/values.yaml \
-            --set global.image.tag="${GIT_SHA}" \
-            --wait --timeout 15m
+          set -euo pipefail
+          SERVICES=("release-service" "risk-engine" "policy-engine" "audit-service"
+                    "verification-service" "analytics-service" "auth-service" "bff-service" "frontend")
+          for SVC in "${SERVICES[@]}"; do
+            helm upgrade --install "opsera-${SVC}" "opsera-infra/helm/charts/base-nestjs" \
+              --namespace opsera-production \
+              --values "opsera-infra/helm/environments/production/values.yaml" \
+              --set "global.image.tag=${GIT_SHA}" \
+              --set "global.serviceName=${SVC}" \
+              --set "deployment.strategy.type=RollingUpdate" \
+              --set "deployment.strategy.rollingUpdate.maxSurge=25%" \
+              --set "deployment.strategy.rollingUpdate.maxUnavailable=0" \
+              --wait --timeout 15m \
+              --atomic  # auto-rollback on failure
+          done
+
+      - id: test:smoke-production
+        name: Smoke Tests (Production)
+        depends_on: [deploy:production]
+        environment:
+          BASE_URL: "{{ env.PRODUCTION_BASE_URL }}"
+        script: |
+          chmod +x opsera-infra/tests/smoke/smoke-test.sh
+          BASE_URL="${BASE_URL}" RETRIES=10 RETRY_DELAY=15 \
+            opsera-infra/tests/smoke/smoke-test.sh
+
+    on_failure:
+      notify:
+        - type: slack
+          channel: "#platform-incidents"
+          message: |
+            🔥 *PRODUCTION deployment FAILED* | {{ pipeline.id }}
+            Step: {{ failed_step.id }} | SHA: {{ git.sha }}
+            Helm `--atomic` flag triggered automatic rollback.
+            @here Immediate investigation required.
+        - type: pagerduty
+          severity: critical
+          message: "Production deployment failed — {{ pipeline.id }}"

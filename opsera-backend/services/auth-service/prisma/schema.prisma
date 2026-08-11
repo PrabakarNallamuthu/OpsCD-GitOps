@@ -1,0 +1,65 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["auth"]
+}
+
+model User {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  idp_subject   String    @unique @db.VarChar(500)
+  idp_issuer    String    @db.VarChar(500)
+  email         String    @db.VarChar(500)  // AES-256-GCM encrypted
+  name          String    @db.VarChar(500)  // AES-256-GCM encrypted
+  roles         String[]  @db.Text
+  org_id        String    @db.Uuid
+  is_active     Boolean   @default(true)
+  last_login_at DateTime? @db.Timestamptz(6)
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at    DateTime? @db.Timestamptz(6)
+
+  sessions      RefreshToken[]
+
+  @@unique([idp_subject, idp_issuer])
+  @@index([org_id])
+  @@index([is_active])
+  @@schema("auth")
+}
+
+model RefreshToken {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id     String    @db.Uuid
+  token_hash  String    @unique @db.VarChar(64)  // SHA-256 of token
+  family_id   String    @db.Uuid                  // for reuse detection
+  expires_at  DateTime  @db.Timestamptz(6)
+  revoked_at  DateTime? @db.Timestamptz(6)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+
+  user        User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([family_id])
+  @@index([expires_at])
+  @@schema("auth")
+}
+
+model SsoConfiguration {
+  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  org_id        String   @unique @db.Uuid
+  provider_type String   @db.VarChar(20)  // oidc | saml
+  issuer_url    String   @db.VarChar(500)
+  client_id     String   @db.VarChar(500)
+  scopes        String[] @db.Text
+  role_mappings Json     @default("{}")
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @updatedAt @db.Timestamptz(6)
+
+  @@schema("auth")
+}

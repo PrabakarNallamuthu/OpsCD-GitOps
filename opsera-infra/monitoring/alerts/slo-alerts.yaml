@@ -1,0 +1,154 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: opsera-slo-alerts
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: opsera.slo.api
+      interval: 30s
+      rules:
+        - alert: HighAPIErrorRate
+          expr: |
+            sum(rate(http_request_errors_total{namespace="opsera-internal"}[5m])) by (service)
+            /
+            sum(rate(http_requests_total{namespace="opsera-internal"}[5m])) by (service)
+            > 0.005
+          for: 5m
+          labels:
+            severity: warning
+            team: sre
+          annotations:
+            summary: "High API error rate: {{ $labels.service }}"
+            description: "Service {{ $labels.service }} error rate is {{ humanizePercentage $value }} (SLO: <0.5%)"
+            runbook_url: "https://github.com/PrabakarNallamuthu/OpsCD-GitOps/blob/main/opsera-infra/monitoring/runbooks/high-api-error-rate.md"
+
+        - alert: CriticalAPIErrorRate
+          expr: |
+            sum(rate(http_request_errors_total{namespace="opsera-internal"}[5m])) by (service)
+            /
+            sum(rate(http_requests_total{namespace="opsera-internal"}[5m])) by (service)
+            > 0.01
+          for: 5m
+          labels:
+            severity: critical
+            team: sre
+          annotations:
+            summary: "CRITICAL API error rate: {{ $labels.service }}"
+            description: "Service {{ $labels.service }} error rate is {{ humanizePercentage $value }} — SLO breach. PagerDuty escalation."
+            runbook_url: "https://github.com/PrabakarNallamuthu/OpsCD-GitOps/blob/main/opsera-infra/monitoring/runbooks/high-api-error-rate.md"
+
+    - name: opsera.slo.risk
+      interval: 30s
+      rules:
+        - alert: RiskAnalysisSlowP95
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(risk_analysis_duration_seconds_bucket[10m])) by (le)
+            ) > 60
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Risk analysis p95 latency exceeds 60s"
+            description: "Risk Engine p95 analysis duration is {{ humanizeDuration $value }}. Target: <60s."
+            runbook_url: "https://github.com/PrabakarNallamuthu/OpsCD-GitOps/blob/main/opsera-infra/monitoring/runbooks/risk-analysis-timeout.md"
+
+        - alert: RiskAnalysisTimeout
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(risk_analysis_duration_seconds_bucket[10m])) by (le)
+            ) > 90
+          for: 10m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "CRITICAL: Risk analysis p95 >90s — SLO breach"
+            description: "Risk Engine p95 analysis duration is {{ humanizeDuration $value }}. Maximum SLO: 90s."
+            runbook_url: "https://github.com/PrabakarNallamuthu/OpsCD-GitOps/blob/main/opsera-infra/monitoring/runbooks/risk-analysis-timeout.md"
+
+    - name: opsera.slo.kafka
+      interval: 30s
+      rules:
+        - alert: KafkaConsumerLagHigh
+          expr: |
+            max(kafka_consumer_lag) by (topic, consumergroup) > 10000
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Kafka consumer lag high: {{ $labels.topic }}/{{ $labels.consumergroup }}"
+            description: "Consumer group {{ $labels.consumergroup }} has {{ $value }} messages lag on topic {{ $labels.topic }}."
+            runbook_url: "https://github.com/PrabakarNallamuthu/OpsCD-GitOps/blob/main/opsera-infra/monitoring/runbooks/kafka-consumer-lag.md"
+
+        - alert: KafkaDLQMessagesAppearing
+          expr: |
+            sum(kafka_consumer_lag{topic=~".*\\.dlq"}) by (topic) > 0
+          for: 2m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "DLQ has messages: {{ $labels.topic }}"
+            description: "Dead letter queue {{ $labels.topic }} has {{ $value }} messages requiring investigation."
+
+    - name: opsera.slo.database
+      interval: 30s
+      rules:
+        - alert: PostgreSQLConnectionWarning
+          expr: |
+            pg_stat_activity_count / pg_settings_max_connections > 0.7
+          for: 5m
+          labels:
+            severity: warning
+            team: sre
+          annotations:
+            summary: "PostgreSQL connection utilization >70%"
+            description: "PostgreSQL connection pool at {{ humanizePercentage $value }}. Monitor closely."
+            runbook_url: "https://github.com/PrabakarNallamuthu/OpsCD-GitOps/blob/main/opsera-infra/monitoring/runbooks/postgresql-connection-exhaustion.md"
+
+        - alert: PostgreSQLConnectionCritical
+          expr: |
+            pg_stat_activity_count / pg_settings_max_connections > 0.8
+          for: 5m
+          labels:
+            severity: critical
+            team: sre
+          annotations:
+            summary: "CRITICAL: PostgreSQL connection utilization >80%"
+            description: "PostgreSQL connection pool at {{ humanizePercentage $value }}. Immediate action required."
+            runbook_url: "https://github.com/PrabakarNallamuthu/OpsCD-GitOps/blob/main/opsera-infra/monitoring/runbooks/postgresql-connection-exhaustion.md"
+
+    - name: opsera.slo.availability
+      interval: 30s
+      rules:
+        - alert: ServicePodsBelowPDB
+          expr: |
+            kube_deployment_status_replicas_available{namespace="opsera-internal"} < 2
+          for: 3m
+          labels:
+            severity: critical
+            team: sre
+          annotations:
+            summary: "Service has fewer than 2 available pods: {{ $labels.deployment }}"
+            description: "Deployment {{ $labels.deployment }} has only {{ $value }} available pods. PDB requires 2."
+            runbook_url: "https://github.com/PrabakarNallamuthu/OpsCD-GitOps/blob/main/opsera-infra/monitoring/runbooks/service-availability.md"
+
+        - alert: AuditTrailGap
+          expr: |
+            audit_trail_discrepancy > 0
+          for: 15m
+          labels:
+            severity: critical
+            team: sre
+            compliance: "SOX"
+          annotations:
+            summary: "CRITICAL: Audit trail gap detected — SOX compliance risk"
+            description: "{{ $value }} audit records missing. Investigate immediately — SOX non-compliance risk."
+            runbook_url: "https://github.com/PrabakarNallamuthu/OpsCD-GitOps/blob/main/opsera-infra/monitoring/runbooks/audit-trail-gap.md"

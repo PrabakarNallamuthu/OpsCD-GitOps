@@ -1,0 +1,119 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["verification"]
+}
+
+enum VerificationVerdict {
+  Pass
+  Fail
+  Inconclusive
+  Skipped
+
+  @@schema("verification")
+}
+
+enum AnomalySeverity {
+  Info
+  Warning
+  Critical
+
+  @@schema("verification")
+}
+
+// Partitioned by created_at (monthly)
+model VerificationResult {
+  id             String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  release_id     String              @db.Uuid
+  deployment_id  String?             @db.Uuid
+  verdict        VerificationVerdict @default(Inconclusive)
+  error_rate     Decimal?            @db.Decimal(6, 4)
+  latency_p95_ms Int?
+  throughput_rps Decimal?            @db.Decimal(10, 2)
+  baseline_score Decimal?            @db.Decimal(5, 2)
+  evidence_url   String?             @db.VarChar(500)
+  metadata       Json                @default("{}")
+  created_at     DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime            @updatedAt @db.Timestamptz(6)
+
+  health_checks  HealthCheck[]
+  comparisons    MetricComparison[]
+  anomalies      Anomaly[]
+
+  @@index([release_id])
+  @@index([verdict, created_at(sort: Desc)])
+  @@schema("verification")
+}
+
+model HealthCheck {
+  id                    String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  verification_id       String             @db.Uuid
+  service_name          String             @db.VarChar(100)
+  check_type            String             @db.VarChar(50)  // readiness | liveness | custom
+  status                String             @db.VarChar(20)  // healthy | unhealthy | unknown
+  response_time_ms      Int?
+  details               Json               @default("{}")
+  checked_at            DateTime           @default(now()) @db.Timestamptz(6)
+
+  verification          VerificationResult @relation(fields: [verification_id], references: [id], onDelete: Cascade)
+
+  @@index([verification_id])
+  @@schema("verification")
+}
+
+// Partitioned by baseline_captured_at (monthly)
+model MetricBaseline {
+  id                   String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  service_name         String   @db.VarChar(100)
+  environment          String   @db.VarChar(50)
+  error_rate_p95       Decimal  @db.Decimal(6, 4)
+  latency_p50_ms       Int
+  latency_p95_ms       Int
+  latency_p99_ms       Int
+  throughput_rps       Decimal  @db.Decimal(10, 2)
+  sample_window_hours  Int      @default(24)
+  baseline_captured_at DateTime @db.Timestamptz(6)
+
+  @@index([service_name, environment, baseline_captured_at(sort: Desc)])
+  @@schema("verification")
+}
+
+// Partitioned by compared_at (monthly)
+model MetricComparison {
+  id                String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  verification_id   String             @db.Uuid
+  metric_name       String             @db.VarChar(100)
+  baseline_value    Decimal            @db.Decimal(12, 4)
+  current_value     Decimal            @db.Decimal(12, 4)
+  delta_percent     Decimal            @db.Decimal(8, 2)
+  threshold_percent Decimal            @db.Decimal(8, 2)
+  is_within_bounds  Boolean
+  compared_at       DateTime           @default(now()) @db.Timestamptz(6)
+
+  verification      VerificationResult @relation(fields: [verification_id], references: [id], onDelete: Cascade)
+
+  @@index([verification_id])
+  @@schema("verification")
+}
+
+model Anomaly {
+  id              String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  verification_id String             @db.Uuid
+  metric_name     String             @db.VarChar(100)
+  severity        AnomalySeverity
+  description     String             @db.Text
+  detected_value  Decimal            @db.Decimal(12, 4)
+  expected_range  Json
+  detected_at     DateTime           @default(now()) @db.Timestamptz(6)
+
+  verification    VerificationResult @relation(fields: [verification_id], references: [id], onDelete: Cascade)
+
+  @@index([verification_id, severity])
+  @@schema("verification")
+}
