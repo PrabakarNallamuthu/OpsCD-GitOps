@@ -10,7 +10,7 @@ describe('PostgresHealthIndicator', () => {
     };
     const indicator = new PostgresHealthIndicator(mockPrisma);
     const result = await indicator.isHealthy('postgres');
-    expect(result.postgres.status).toBe('up');
+    expect(result['postgres']?.['status']).toBe('up');
   });
 
   it('throws HealthCheckError when query fails', async () => {
@@ -37,7 +37,7 @@ describe('RedisHealthIndicator', () => {
     const mockRedis = { ping: jest.fn().mockResolvedValue('PONG') };
     const indicator = new RedisHealthIndicator(mockRedis);
     const result = await indicator.isHealthy('redis');
-    expect(result.redis.status).toBe('up');
+    expect(result['redis']?.['status']).toBe('up');
   });
 
   it('throws HealthCheckError when PING fails', async () => {
@@ -62,8 +62,8 @@ describe('KafkaHealthIndicator', () => {
     };
     const indicator = new KafkaHealthIndicator(mockAdmin);
     const result = await indicator.isHealthy('kafka');
-    expect(result.kafka.status).toBe('up');
-    expect(result.kafka.brokerCount).toBe(3);
+    expect(result['kafka']?.['status']).toBe('up');
+    expect(result['kafka']?.['brokerCount']).toBe(3);
   });
 
   it('throws HealthCheckError when broker is unreachable', async () => {

@@ -9,7 +9,7 @@ import axios, { type AxiosError } from 'axios';
 let isRefreshing = false;
 let refreshQueue: Array<(ok: boolean) => void> = [];
 
-export const api = axios.create({
+export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? '',
   withCredentials: true, // send httpOnly cookies
   headers: {
@@ -63,3 +63,6 @@ api.interceptors.response.use(
     }
   },
 );
+
+export { apiClient as api };
+export default apiClient;
