@@ -1,0 +1,93 @@
+---
+# Data zone ingress: allow only from opsera-internal on data store ports
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: data-allow-internal-ingress
+  namespace: opsera-data
+  labels:
+    opsera.io/policy-type: zone-allow
+    opsera.io/zone: data
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              opsera.io/zone: internal
+      ports:
+        - port: 5432    # PostgreSQL
+          protocol: TCP
+        - port: 6379    # Redis
+          protocol: TCP
+        - port: 9092    # Kafka plaintext
+          protocol: TCP
+        - port: 9093    # Kafka TLS
+          protocol: TCP
+        - port: 9200    # Elasticsearch HTTP
+          protocol: TCP
+        - port: 9300    # Elasticsearch transport
+          protocol: TCP
+        - port: 9000    # MinIO S3 API
+          protocol: TCP
+        - port: 9001    # MinIO web console (admin only)
+          protocol: TCP
+
+---
+# Data zone inter-replica replication:
+# PostgreSQL streaming replication, Redis Sentinel, Kafka broker-to-broker,
+# Elasticsearch cluster formation, and MinIO erasure coding require
+# intra-zone communication.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: data-allow-intra-zone
+  namespace: opsera-data
+  labels:
+    opsera.io/policy-type: zone-allow
+    opsera.io/zone: data
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              opsera.io/zone: data
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              opsera.io/zone: data
+
+---
+# Data zone egress: DNS only (data stores must not initiate external connections)
+# Combined with allow-dns.yaml this provides:
+#   - DNS resolution: allowed (to kube-system)
+#   - External internet: DENIED
+#   - Cloud provider APIs: DENIED (data stores must not phone home)
+# NOTE: allow-dns.yaml handles the DNS allow rule.
+
+---
+# Data zone ingress: allow MinIO metrics scraping from monitoring namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: data-allow-metrics-ingress
+  namespace: opsera-data
+  labels:
+    opsera.io/policy-type: metrics-allow
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: minio
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 9000
+          protocol: TCP

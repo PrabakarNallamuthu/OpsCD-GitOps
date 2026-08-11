@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Prod environment: inherits base policies with no relaxations.
+# All egress from internal/data zones is blocked except for:
+#   - DNS (port 53 to kube-system)
+#   - Explicit data zone ports
+#   - Linkerd control plane ports
+
+resources:
+  - ../../base/network-policies

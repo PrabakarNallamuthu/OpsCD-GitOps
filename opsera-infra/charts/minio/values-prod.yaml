@@ -1,0 +1,59 @@
+# ── MinIO — Production environment ────────────────────────────────────────────
+#
+# Distributed mode: 4 nodes with erasure coding.
+# 4 × 250GB = 1TB total; erasure coding allows 2 of 4 nodes to fail.
+
+minio:
+  namespace: opsera-data
+  mode: distributed
+  replicas: 4
+
+  rootUser: "opsera-minio-admin"
+  rootPassword: ""  # Managed by ESO from Vault post WO-005
+
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+  persistence:
+    enabled: true
+    size: 250Gi
+    storageClass: ""
+
+  # SSE-KMS via Vault Transit engine
+  environment:
+    MINIO_KMS_KES_ENDPOINT: "https://kes.opsera-internal.svc.cluster.local:7373"
+    MINIO_KMS_KES_CERT_FILE: "/tmp/kes-cert/tls.crt"
+    MINIO_KMS_KES_KEY_FILE:  "/tmp/kes-cert/tls.key"
+    MINIO_KMS_KES_CA_PATH:   "/tmp/kes-cert/ca.crt"
+    MINIO_KMS_KES_KEY_NAME:  "opsera-minio-key"
+
+  service:
+    type: ClusterIP
+    port: 9000
+
+  consoleService:
+    type: ClusterIP
+    port: 9001
+
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: minio
+          topologyKey: kubernetes.io/hostname
+
+  ingress:
+    enabled: false
+
+  consoleIngress:
+    enabled: false

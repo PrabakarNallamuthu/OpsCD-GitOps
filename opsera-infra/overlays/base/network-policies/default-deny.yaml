@@ -1,0 +1,111 @@
+---
+# Default-deny ingress for opsera-public
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: opsera-public
+  labels:
+    opsera.io/policy-type: default-deny
+    opsera.io/zone: public
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+
+---
+# Default-deny egress for opsera-public
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: opsera-public
+  labels:
+    opsera.io/policy-type: default-deny
+    opsera.io/zone: public
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+
+---
+# Default-deny ingress for opsera-dmz
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: opsera-dmz
+  labels:
+    opsera.io/policy-type: default-deny
+    opsera.io/zone: dmz
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+
+---
+# Default-deny egress for opsera-dmz
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: opsera-dmz
+  labels:
+    opsera.io/policy-type: default-deny
+    opsera.io/zone: dmz
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+
+---
+# Default-deny ingress for opsera-internal
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: opsera-internal
+  labels:
+    opsera.io/policy-type: default-deny
+    opsera.io/zone: internal
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+
+---
+# Default-deny egress for opsera-internal
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: opsera-internal
+  labels:
+    opsera.io/policy-type: default-deny
+    opsera.io/zone: internal
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+
+---
+# Default-deny ingress for opsera-data
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: opsera-data
+  labels:
+    opsera.io/policy-type: default-deny
+    opsera.io/zone: data
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+
+---
+# Default-deny egress for opsera-data
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: opsera-data
+  labels:
+    opsera.io/policy-type: default-deny
+    opsera.io/zone: data
+spec:
+  podSelector: {}
+  policyTypes: [Egress]

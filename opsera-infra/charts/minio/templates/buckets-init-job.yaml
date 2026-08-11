@@ -1,0 +1,147 @@
+---
+# Bucket initialization Job — runs once on first deploy to create all buckets
+# and configure lifecycle policies and object lock.
+#
+# Uses the mc (MinIO Client) tool to:
+#   1. Wait for MinIO to be ready
+#   2. Create all required buckets
+#   3. Configure lifecycle policies (retention)
+#   4. Enable object lock on the audit archives bucket (WORM compliance)
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-buckets-init
+  namespace: opsera-data
+  labels:
+    app: minio-buckets-init
+    opsera.io/managed-by: helm
+  annotations:
+    # Helm hook: run after install/upgrade, before other resources
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: minio-buckets-init
+      annotations:
+        linkerd.io/inject: disabled  # Init job doesn't need mesh
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: wait-for-minio
+          image: curlimages/curl:8.4.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until curl -sf http://minio.opsera-data.svc.cluster.local:9000/minio/health/ready; do
+                echo "Waiting for MinIO..."; sleep 5
+              done
+              echo "MinIO is ready."
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      containers:
+        - name: mc-init
+          image: minio/mc:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              # Configure mc alias
+              mc alias set opsera \
+                http://minio.opsera-data.svc.cluster.local:9000 \
+                "$MINIO_ROOT_USER" \
+                "$MINIO_ROOT_PASSWORD"
+
+              echo "=== Creating buckets ==="
+
+              # Create buckets (idempotent)
+              for BUCKET in \
+                opsera-pg-wal \
+                opsera-pg-backups \
+                opsera-redis-snapshots \
+                opsera-es-snapshots \
+                opsera-vault-snapshots \
+                opsera-audit-archives; do
+                mc mb --ignore-existing opsera/"$BUCKET"
+                echo "✓ Bucket: $BUCKET"
+              done
+
+              echo ""
+              echo "=== Configuring lifecycle policies ==="
+
+              # PostgreSQL WAL archives: 30-day retention
+              mc ilm rule add --expiry-days 30 opsera/opsera-pg-wal
+              echo "✓ opsera-pg-wal: 30-day retention"
+
+              # PostgreSQL full backups: 30-day retention
+              mc ilm rule add --expiry-days 30 opsera/opsera-pg-backups
+              echo "✓ opsera-pg-backups: 30-day retention"
+
+              # Redis snapshots: 30-day retention
+              mc ilm rule add --expiry-days 30 opsera/opsera-redis-snapshots
+              echo "✓ opsera-redis-snapshots: 30-day retention"
+
+              # Elasticsearch snapshots: 90-day retention
+              mc ilm rule add --expiry-days 90 opsera/opsera-es-snapshots
+              echo "✓ opsera-es-snapshots: 90-day retention"
+
+              # Vault snapshots: 90-day retention
+              mc ilm rule add --expiry-days 90 opsera/opsera-vault-snapshots
+              echo "✓ opsera-vault-snapshots: 90-day retention"
+
+              # Audit archives: 7-year retention (SOX compliance = 2555 days)
+              mc ilm rule add --expiry-days 2555 opsera/opsera-audit-archives
+              echo "✓ opsera-audit-archives: 7-year (2555-day) retention"
+
+              echo ""
+              echo "=== Enabling object lock on audit archives (WORM) ==="
+
+              # Object lock requires bucket to be created with --with-lock flag
+              # Re-create with lock if not already configured
+              mc rb --force opsera/opsera-audit-archives 2>/dev/null || true
+              mc mb --with-lock opsera/opsera-audit-archives
+              mc retention set --default COMPLIANCE "2555d" opsera/opsera-audit-archives
+              echo "✓ opsera-audit-archives: object lock COMPLIANCE 2555 days"
+
+              echo ""
+              echo "=== Listing buckets ==="
+              mc ls opsera/
+
+              echo ""
+              echo "=== MinIO bucket initialization complete ==="
+
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: rootUser
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: rootPassword
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # mc needs to write to ~/.mc
+            capabilities:
+              drop: ["ALL"]

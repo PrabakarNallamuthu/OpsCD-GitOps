@@ -1,0 +1,13 @@
+apiVersion: v2
+name: opsera-external-secrets
+description: |
+  Opsera wrapper chart for the External Secrets Operator.
+  Syncs secrets from Vault to Kubernetes Secrets using Kubernetes auth.
+type: application
+version: 0.1.0
+appVersion: "0.10.0"
+
+dependencies:
+  - name: external-secrets
+    version: "0.10.0"
+    repository: "https://charts.external-secrets.io"

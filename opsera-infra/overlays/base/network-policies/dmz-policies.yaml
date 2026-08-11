@@ -1,0 +1,107 @@
+---
+# DMZ zone ingress: allow from external load balancer (ports 80/443)
+# Kong is the only pod in DMZ that accepts external ingress.
+#
+# NOTE: ipBlock CIDR is set to 0.0.0.0/0 (entire internet) with exceptions
+# for RFC1918 private ranges. In production, restrict to your cloud LB CIDR.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dmz-allow-external-ingress
+  namespace: opsera-dmz
+  labels:
+    opsera.io/policy-type: zone-allow
+    opsera.io/zone: dmz
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kong
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: 80
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+        - port: 8443
+          protocol: TCP
+      from:
+        # Allow from external internet (load balancer forwards here)
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+
+---
+# DMZ egress: Kong may only route to opsera-internal services
+# Kong → internal services on their NestJS port (3000-3010 range)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dmz-allow-internal-egress
+  namespace: opsera-dmz
+  labels:
+    opsera.io/policy-type: zone-allow
+    opsera.io/zone: dmz
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              opsera.io/zone: internal
+      ports:
+        - port: 3000
+          protocol: TCP
+        - port: 3001
+          protocol: TCP
+        - port: 3002
+          protocol: TCP
+        - port: 3003
+          protocol: TCP
+        - port: 3004
+          protocol: TCP
+        - port: 3005
+          protocol: TCP
+        - port: 3006
+          protocol: TCP
+        - port: 3007
+          protocol: TCP
+        - port: 3008
+          protocol: TCP
+
+---
+# DMZ → linkerd control plane (allow Linkerd mesh traffic)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dmz-allow-linkerd
+  namespace: opsera-dmz
+  labels:
+    opsera.io/policy-type: linkerd-allow
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: linkerd
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: linkerd
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 8086
+          protocol: TCP
+        - port: 4143
+          protocol: TCP
+        - port: 4190
+          protocol: TCP

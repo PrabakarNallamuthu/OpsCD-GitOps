@@ -1,0 +1,14 @@
+apiVersion: v2
+name: opsera-cert-manager
+description: |
+  Opsera wrapper chart for cert-manager.
+  Manages TLS certificate lifecycle for Kong (external), Linkerd (internal PKI),
+  and other services requiring automated certificate rotation.
+type: application
+version: 0.1.0
+appVersion: "1.14.0"
+
+dependencies:
+  - name: cert-manager
+    version: "v1.14.0"
+    repository: "https://charts.jetstack.io"

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: opsera-kong
+description: |
+  Opsera wrapper chart for Kong API Gateway (DB-less mode).
+  Deployed in opsera-dmz as the Kubernetes Ingress controller.
+  Provides TLS 1.3 termination, rate limiting, JWT validation,
+  W3C Trace Context correlation ID injection, and request transformation.
+type: application
+version: 0.1.0
+appVersion: "3.6.0"
+
+dependencies:
+  - name: kong
+    version: "2.38.0"
+    repository: "https://charts.konghq.com"

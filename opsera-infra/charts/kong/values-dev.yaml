@@ -1,0 +1,84 @@
+# ── Kong API Gateway — Dev environment ───────────────────────────────────────
+
+kong:
+  # Deploy Kong in the DMZ namespace
+  namespace: opsera-dmz
+
+  # DB-less mode — all config declarative via CRDs and KongIngress resources
+  env:
+    database: "off"
+    plugins: "bundled,correlation-id,jwt,rate-limiting,request-transformer,response-transformer,ip-restriction"
+    # TLS minimum version
+    ssl_protocols: "TLSv1.3"
+    # Structured JSON logs for cluster log collection
+    log_level: "info"
+    proxy_access_log: "/dev/stdout"
+    proxy_error_log: "/dev/stderr"
+    admin_access_log: "/dev/stdout"
+    admin_error_log: "/dev/stderr"
+    # Client body buffer for release payloads
+    client_body_buffer_size: "8m"
+    proxy_buffer_size: "8k"
+
+  # Kubernetes Ingress controller configuration
+  ingressController:
+    enabled: true
+    ingressClass: kong
+    installCRDs: false  # CRDs are bundled in the chart dependency
+
+  # Proxy service — external LoadBalancer
+  proxy:
+    enabled: true
+    type: LoadBalancer
+    tls:
+      enabled: true
+      servicePort: 443
+      containerPort: 8443
+    http:
+      enabled: true
+      servicePort: 80
+      containerPort: 8000
+    annotations:
+      # AWS NLB for low-latency external access
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+
+  # Admin API — ClusterIP ONLY (never externally accessible)
+  admin:
+    enabled: true
+    type: ClusterIP
+    http:
+      enabled: true
+      servicePort: 8001
+      containerPort: 8001
+
+  # Resources (dev: minimal)
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  # Replicas (dev: 1)
+  replicaCount: 1
+
+  # Linkerd sidecar injection for mTLS on upstream connections
+  podAnnotations:
+    linkerd.io/inject: enabled
+
+  # Readiness/liveness
+  readinessProbe:
+    httpGet:
+      path: /status
+      port: 8100
+    initialDelaySeconds: 10
+    periodSeconds: 10
+
+  livenessProbe:
+    httpGet:
+      path: /status
+      port: 8100
+    initialDelaySeconds: 30
+    periodSeconds: 30

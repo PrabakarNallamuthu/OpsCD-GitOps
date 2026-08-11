@@ -1,0 +1,98 @@
+# ── HashiCorp Vault — Production environment ──────────────────────────────────
+#
+# 3-replica Raft HA cluster with auto-unseal via AWS KMS.
+# PodDisruptionBudget ensures at least 2 replicas during node maintenance.
+
+vault:
+  server:
+    namespace: opsera-internal
+
+    image:
+      tag: "1.16.0"
+
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "500m"
+      limits:
+        memory: "1Gi"
+        cpu: "1000m"
+
+    ha:
+      enabled: true
+      replicas: 3
+
+      raft:
+        enabled: true
+        setNodeId: true
+        config: |
+          ui = true
+
+          listener "tcp" {
+            tls_disable = 1
+            address = "[::]:8200"
+            cluster_address = "[::]:8201"
+          }
+
+          storage "raft" {
+            path = "/vault/data"
+
+            retry_join {
+              leader_api_addr = "https://vault-0.vault-internal.opsera-internal.svc.cluster.local:8200"
+            }
+            retry_join {
+              leader_api_addr = "https://vault-1.vault-internal.opsera-internal.svc.cluster.local:8200"
+            }
+            retry_join {
+              leader_api_addr = "https://vault-2.vault-internal.opsera-internal.svc.cluster.local:8200"
+            }
+          }
+
+          seal "awskms" {
+            region     = "us-east-1"
+            kms_key_id = env("VAULT_AWSKMS_SEAL_KEY_ID")
+          }
+
+          api_addr = "https://vault.opsera-internal.svc.cluster.local:8200"
+          cluster_addr = "https://${HOSTNAME}.vault-internal.opsera-internal.svc.cluster.local:8201"
+
+          # Audit logging (fail-closed for compliance)
+          # Enabled post-init via: vault audit enable file file_path=stdout
+
+    dataStorage:
+      enabled: true
+      size: 50Gi
+      storageClass: ""
+      accessMode: ReadWriteOnce
+
+    # Pod disruption budget — keep 2 of 3 available
+    podDisruptionBudget:
+      maxUnavailable: 1
+
+    annotations:
+      linkerd.io/inject: enabled
+
+    serviceAccount:
+      create: true
+      name: vault
+      annotations:
+        eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/opsera-prod-workload-identity-role"
+
+    affinity: |
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: vault
+                component: server
+            topologyKey: kubernetes.io/hostname
+
+  ui:
+    enabled: true
+    serviceType: ClusterIP
+
+  injector:
+    enabled: false
+
+  csi:
+    enabled: false

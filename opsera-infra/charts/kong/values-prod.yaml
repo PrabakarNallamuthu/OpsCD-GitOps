@@ -1,0 +1,50 @@
+# ── Kong API Gateway — Production environment ─────────────────────────────────
+kong:
+  namespace: opsera-dmz
+  env:
+    database: "off"
+    plugins: "bundled,correlation-id,jwt,rate-limiting,request-transformer,response-transformer"
+    ssl_protocols: "TLSv1.3"
+    log_level: "warn"
+    proxy_access_log: "/dev/stdout"
+    proxy_error_log: "/dev/stderr"
+    admin_access_log: "off"  # Disable admin log in prod
+    admin_error_log: "/dev/stderr"
+    client_body_buffer_size: "16m"
+    proxy_buffer_size: "16k"
+
+  ingressController:
+    enabled: true
+    ingressClass: kong
+    installCRDs: false
+
+  proxy:
+    enabled: true
+    type: LoadBalancer
+    tls:
+      enabled: true
+      servicePort: 443
+      containerPort: 8443
+    http:
+      enabled: false  # HTTPS only in prod
+
+  admin:
+    enabled: true
+    type: ClusterIP
+
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+  replicaCount: 3
+
+  podAnnotations:
+    linkerd.io/inject: enabled
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2

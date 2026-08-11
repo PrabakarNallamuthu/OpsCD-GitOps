@@ -1,0 +1,160 @@
+---
+# ── Rate Limiting Plugin ──────────────────────────────────────────────────────
+# 1,000 req/sec per authenticated client, 10,000 req/sec global burst.
+# Initial implementation: local policy (per-pod).
+# After WO-007 (Redis): switch to redis policy for cluster-wide rate limiting.
+
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: opsera-rate-limiting
+  namespace: opsera-dmz
+  annotations:
+    kubernetes.io/ingress.class: kong
+plugin: rate-limiting
+config:
+  # 1,000 req/sec = 60,000 per minute
+  minute: 60000
+  second: 1000
+  # Per authenticated consumer (auth via JWT plugin below)
+  limit_by: consumer
+  policy: local
+  # Fall back to local if Redis unavailable (fault tolerant)
+  fault_tolerant: true
+  # Return 429 with Retry-After header
+  hide_client_headers: false
+
+---
+# ── Global Rate Limit (all consumers combined) ────────────────────────────────
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: opsera-rate-limiting-global
+  namespace: opsera-dmz
+  annotations:
+    kubernetes.io/ingress.class: kong
+plugin: rate-limiting
+config:
+  second: 10000
+  limit_by: ip
+  policy: local
+  fault_tolerant: true
+
+---
+# ── JWT Validation Plugin ─────────────────────────────────────────────────────
+# Validates RS256 JWT tokens issued by the Auth Service.
+# Public key is mounted from a Kubernetes Secret (populated by ESO from Vault).
+
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: opsera-jwt
+  namespace: opsera-dmz
+  annotations:
+    kubernetes.io/ingress.class: kong
+plugin: jwt
+config:
+  # RS256 — asymmetric signing, auth service holds private key
+  key_claim_name: kid
+  claims_to_verify:
+    - exp
+    - nbf
+  # Allow JWT in Authorization: Bearer header or ?jwt= query param
+  uri_param_names:
+    - jwt
+  cookie_names: []
+  # Return 401 with structured JSON error body
+  run_on_preflight: false
+  maximum_expiration: 86400  # 24 hours maximum token validity
+
+---
+# ── Correlation ID Plugin (W3C Trace Context) ─────────────────────────────────
+# Injects W3C traceparent header for distributed tracing.
+# Format: 00-{trace-id}-{span-id}-{flags}
+
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: opsera-correlation-id
+  namespace: opsera-dmz
+  annotations:
+    kubernetes.io/ingress.class: kong
+plugin: correlation-id
+config:
+  header_name: traceparent
+  # W3C Trace Context format generator
+  generator: tracker
+  echo_downstream: true
+
+---
+# ── Request Transformer — Security Headers ────────────────────────────────────
+# Strips internal headers that should not be forwarded upstream.
+# Adds security response headers to all responses.
+
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: opsera-request-transformer
+  namespace: opsera-dmz
+  annotations:
+    kubernetes.io/ingress.class: kong
+plugin: request-transformer
+config:
+  remove:
+    headers:
+      # Strip internal routing headers that clients should not control
+      - X-Forwarded-For
+      - X-Real-IP
+      - X-Original-URI
+  add:
+    headers:
+      # Propagate Kong-generated correlation ID downstream
+      - "X-Kong-Upstream: opsera-gateway"
+
+---
+# ── Response Transformer — Security Response Headers ─────────────────────────
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: opsera-response-transformer
+  namespace: opsera-dmz
+  annotations:
+    kubernetes.io/ingress.class: kong
+plugin: response-transformer
+config:
+  add:
+    headers:
+      - "X-Content-Type-Options: nosniff"
+      - "X-Frame-Options: DENY"
+      - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+      - "Referrer-Policy: strict-origin-when-cross-origin"
+  remove:
+    headers:
+      # Hide server fingerprint
+      - Server
+      - X-Powered-By
+
+---
+# ── TLS Certificate (cert-manager) ────────────────────────────────────────────
+# External TLS certificate for Kong proxy.
+# Dev: self-signed or Let's Encrypt staging.
+# Prod: Let's Encrypt production or custom CA.
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kong-tls
+  namespace: opsera-dmz
+spec:
+  secretName: kong-tls-secret
+  duration: 2160h    # 90 days
+  renewBefore: 360h  # Renew 15 days before expiry
+
+  dnsNames:
+    - api.opsera.io
+    - "*.opsera.io"
+
+  issuerRef:
+    name: letsencrypt-staging
+    kind: ClusterIssuer
+    group: cert-manager.io

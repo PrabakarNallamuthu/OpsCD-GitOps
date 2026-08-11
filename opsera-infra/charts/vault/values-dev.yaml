@@ -1,0 +1,100 @@
+# ── HashiCorp Vault — Dev environment ────────────────────────────────────────
+#
+# Dev uses integrated Raft storage with 1 replica for simplicity.
+# Staging/Prod use 3 replicas for HA.
+#
+# Auto-unseal: AWS KMS (key provisioned by Terraform WO-001)
+# The KMS key ARN is provided via environment variable VAULT_AWSKMS_SEAL_KEY_ID
+
+vault:
+  # Deploy into opsera-internal namespace alongside microservices
+  # (Vault itself is a core internal service)
+  server:
+    namespace: opsera-internal
+
+    image:
+      tag: "1.16.0"
+
+    # Resource limits
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "250m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+
+    # Dev: single replica
+    ha:
+      enabled: false
+
+    # Standalone mode for dev
+    standalone:
+      enabled: true
+      config: |
+        ui = true
+
+        listener "tcp" {
+          tls_disable = 1   # TLS terminated by Linkerd mTLS in cluster
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+        }
+
+        storage "raft" {
+          path = "/vault/data"
+          node_id = "opsera-vault-dev"
+        }
+
+        # AWS KMS auto-unseal (key ARN injected from environment)
+        seal "awskms" {
+          region     = "us-east-1"
+          kms_key_id = env("VAULT_AWSKMS_SEAL_KEY_ID")
+        }
+
+        # Audit device: stdout for cluster log collection
+        # Enable post-init: vault audit enable file file_path=stdout
+
+        api_addr = "https://vault.opsera-internal.svc.cluster.local:8200"
+        cluster_addr = "https://vault.opsera-internal.svc.cluster.local:8201"
+
+    # Persistent storage for Raft data
+    dataStorage:
+      enabled: true
+      size: 10Gi
+      storageClass: ""    # Use cluster default (encrypted via StorageClass)
+      accessMode: ReadWriteOnce
+
+    # Liveness / readiness probes
+    readinessProbe:
+      enabled: true
+      path: /v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204
+
+    livenessProbe:
+      enabled: true
+      path: /v1/sys/health?standbyok=true
+      initialDelaySeconds: 60
+
+    # Linkerd sidecar injection
+    annotations:
+      linkerd.io/inject: enabled
+
+    # Service account for Kubernetes auth method
+    serviceAccount:
+      create: true
+      name: vault
+      annotations:
+        # IRSA annotation — allows Vault to call AWS KMS for auto-unseal
+        eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/opsera-dev-workload-identity-role"
+
+  # Vault UI enabled (access via kubectl port-forward in dev)
+  ui:
+    enabled: true
+    serviceType: ClusterIP
+
+  # Injector (agent sidecar) — disabled in favour of ESO
+  injector:
+    enabled: false
+
+  # CSI provider — disabled in favour of ESO
+  csi:
+    enabled: false

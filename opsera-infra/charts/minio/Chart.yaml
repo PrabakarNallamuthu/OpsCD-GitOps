@@ -1,0 +1,15 @@
+apiVersion: v2
+name: opsera-minio
+description: |
+  Opsera wrapper chart for MinIO distributed object storage.
+  Provides S3-compatible backup and archival storage for all data stores.
+  Deployed in opsera-data namespace with server-side encryption and
+  lifecycle policies for SOX 7-year audit retention compliance.
+type: application
+version: 0.1.0
+appVersion: "RELEASE.2024-01-01T00-00-00Z"
+
+dependencies:
+  - name: minio
+    version: "5.2.0"
+    repository: "https://charts.min.io"

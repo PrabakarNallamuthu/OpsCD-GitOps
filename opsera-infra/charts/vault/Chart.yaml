@@ -1,0 +1,14 @@
+apiVersion: v2
+name: opsera-vault
+description: |
+  Opsera wrapper chart for HashiCorp Vault with integrated Raft HA storage.
+  Provides centralized secrets management, dynamic database credentials,
+  JWT signing key storage, and PKI engine for cert-manager integration.
+type: application
+version: 0.1.0
+appVersion: "1.16.0"
+
+dependencies:
+  - name: vault
+    version: "0.28.0"
+    repository: "https://helm.releases.hashicorp.com"

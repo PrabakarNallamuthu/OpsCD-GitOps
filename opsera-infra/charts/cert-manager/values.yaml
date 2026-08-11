@@ -1,0 +1,55 @@
+# ── cert-manager — shared defaults ───────────────────────────────────────────
+
+cert-manager:
+  # Install CRDs as part of the Helm chart
+  installCRDs: true
+
+  # Namespace for cert-manager controller
+  namespace: cert-manager
+
+  # Resources
+  resources:
+    requests:
+      cpu: "10m"
+      memory: "32Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+
+  # Webhook resources
+  webhook:
+    resources:
+      requests:
+        cpu: "10m"
+        memory: "32Mi"
+      limits:
+        cpu: "50m"
+        memory: "64Mi"
+
+  # CA injector resources
+  cainjector:
+    resources:
+      requests:
+        cpu: "10m"
+        memory: "32Mi"
+      limits:
+        cpu: "50m"
+        memory: "64Mi"
+
+  # Prometheus metrics
+  prometheus:
+    enabled: true
+    servicemonitor:
+      enabled: false  # Enable after monitoring stack is deployed
+
+  # Global settings
+  global:
+    leaderElection:
+      namespace: cert-manager
+
+---
+# ClusterIssuers are applied separately via overlays/cert-manager/
+
+# overlays/cert-manager/letsencrypt-staging-issuer.yaml
+# overlays/cert-manager/letsencrypt-prod-issuer.yaml
+# overlays/cert-manager/internal-ca-issuer.yaml (backed by Vault PKI)

@@ -1,0 +1,20 @@
+---
+# DEV ONLY: Allow external egress from opsera-internal for debugging.
+# This allows developers to pull packages, connect to external tools,
+# and run integration tests against external services.
+#
+# THIS POLICY MUST NOT EXIST IN STAGING OR PROD.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: internal-allow-external-egress-dev
+  namespace: opsera-internal
+  labels:
+    opsera.io/policy-type: dev-only
+    opsera.io/environment: dev
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - {}    # Allow all egress (dev permissiveness — NOT for prod)
