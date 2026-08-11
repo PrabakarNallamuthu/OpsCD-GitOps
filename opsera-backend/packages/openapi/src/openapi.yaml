@@ -1,0 +1,210 @@
+openapi: "3.1.0"
+info:
+  title: Opsera Voyage API
+  version: "1.0.0"
+  description: |
+    Enterprise GitOps Release Intelligence Platform.
+    All endpoints require Bearer JWT (OIDC PKCE) issued by the auth-service.
+  contact:
+    name: Opsera Engineering
+    email: engineering@opsera.io
+  license:
+    name: Private
+
+servers:
+  - url: https://api.opsera.internal/v1
+    description: Production
+  - url: https://api-staging.opsera.internal/v1
+    description: Staging
+  - url: http://localhost:3000/api/v1
+    description: Local (auth-service)
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Release:
+      type: object
+      required: [id, name, version, status, environment, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [draft, pending_approval, approved, in_progress, completed, failed, rolled_back, cancelled]
+        environment: { type: string }
+        gitRef: { type: string }
+        createdAt: { type: string, format: date-time }
+        approvedAt: { type: string, format: date-time, nullable: true }
+
+    RiskAssessment:
+      type: object
+      required: [releaseId, overallScore, riskLevel, recommendation, factors, assessedAt]
+      properties:
+        releaseId: { type: string, format: uuid }
+        overallScore: { type: integer, minimum: 0, maximum: 100 }
+        riskLevel: { type: string, enum: [low, medium, high, critical] }
+        recommendation: { type: string, enum: [proceed, review, block] }
+        factors:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              weight: { type: number }
+              score: { type: number }
+              evidence: { type: string }
+        assessedAt: { type: string, format: date-time }
+
+    DoraMetrics:
+      type: object
+      properties:
+        deploymentFrequency: { type: number, description: Deployments per day }
+        leadTimeHours: { type: number }
+        changeFailureRate: { type: number, minimum: 0, maximum: 1 }
+        mttrHours: { type: number }
+        level: { type: string, enum: [elite, high, medium, low] }
+
+    AuditRecord:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        eventType: { type: string }
+        actorId: { type: string }
+        resourceType: { type: string }
+        resourceId: { type: string }
+        action: { type: string }
+        complianceFrameworks:
+          type: array
+          items: { type: string }
+        eventTimestamp: { type: string, format: date-time }
+
+    Error:
+      type: object
+      required: [statusCode, message]
+      properties:
+        statusCode: { type: integer }
+        message: { type: string }
+        error: { type: string }
+
+paths:
+  /releases:
+    get:
+      summary: List releases
+      operationId: listReleases
+      tags: [Releases]
+      responses:
+        "200":
+          description: List of releases
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Release' }
+    post:
+      summary: Create release
+      operationId: createRelease
+      tags: [Releases]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, version]
+              properties:
+                name: { type: string }
+                version: { type: string }
+                environment: { type: string, default: staging }
+                gitRef: { type: string }
+      responses:
+        "201":
+          description: Created release
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Release' }
+
+  /releases/{id}:
+    get:
+      summary: Get release by ID
+      operationId: getRelease
+      tags: [Releases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Release' }
+
+  /risk/assess/{releaseId}:
+    post:
+      summary: Assess release risk
+      operationId: assessRisk
+      tags: [Risk]
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [changeVolumeLines, affectedServices, hasFailingTests, deploymentFrequencyPerDay, changeFailureRate, environment]
+              properties:
+                changeVolumeLines: { type: integer }
+                affectedServices: { type: integer }
+                hasFailingTests: { type: boolean }
+                deploymentFrequencyPerDay: { type: number }
+                changeFailureRate: { type: number }
+                environment: { type: string }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RiskAssessment' }
+
+  /analytics/dora:
+    get:
+      summary: Get DORA metrics
+      operationId: getDoraMetrics
+      tags: [Analytics]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DoraMetrics' }
+
+  /audit:
+    get:
+      summary: List audit records
+      operationId: listAuditRecords
+      tags: [Audit]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuditRecord' }
